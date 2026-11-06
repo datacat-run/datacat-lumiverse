@@ -1,5 +1,6 @@
 import { uuidv7 } from "./uuidv7.js";
 import {
+  cardTabs,
   collectGalleryImages,
   ensureBookInExtensions,
   findCharacterBook,
@@ -2666,6 +2667,51 @@ export function setup(ctx) {
       color: var(--dc-muted);
       font-size: 13px;
     }
+    .dcv1-card-tabs {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 14px;
+      padding-bottom: 4px;
+      overflow-x: auto;
+    }
+    .dcv1-card-tab {
+      flex: none;
+      padding: 6px 13px;
+      color: var(--dc-muted);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .dcv1-card-tab span { opacity: .7; }
+    .dcv1-card-tab[aria-selected="true"] {
+      color: #17101f;
+      border-color: var(--dc-yellow);
+      background: var(--dc-yellow);
+    }
+    .dcv1-alt-greeting + .dcv1-alt-greeting {
+      margin-top: 1.4em;
+      padding-top: 1.2em;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-alt-greeting > h3 { margin-top: 0; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
+    .dcv1-card-load {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 16px;
+      padding: 12px 14px;
+      border: 1px dashed rgba(255,255,255,.16);
+      border-radius: 12px;
+      color: var(--dc-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .dcv1-card-load span { flex: 1 1 200px; min-width: 0; }
     .dcv1-gallery {
       display: grid;
       grid-auto-flow: column;
@@ -3238,6 +3284,10 @@ export function setup(ctx) {
     selectedLoading: false,
     selectedError: "",
     expandedDescriptions: new Set(),
+    cardCache: new Map(),
+    cardErrors: new Map(),
+    cardTabChoice: new Map(),
+    cardLoadingId: "",
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4607,19 +4657,37 @@ export function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published],
     ].filter(([, value]) => String(value || "").trim());
-    const description = renderRichText(character.description, {
+    const profileDescription = renderRichText(character.description, {
       origin: apiOrigin(),
     });
-    const lorebookInfo = profileLorebookInfo(character);
-    // Images written into the description render inline; the strip is only for
+    const loadedCard = state.cardCache.get(characterId) || null;
+    const tabs = loadedCard
+      ? cardTabs(loadedCard, {
+          origin: apiOrigin(),
+          fallbackDescription: character.description,
+        })
+      : [];
+    const chosenTab = state.cardTabChoice.get(characterId);
+    const activeTab = tabs.find((tab) => tab.id === chosenTab) || tabs[0] || null;
+    const description = activeTab || profileDescription;
+    const cardLoading = state.cardLoadingId === characterId;
+    const cardError = state.cardErrors.get(characterId) || "";
+    const cardBookEntries = lorebookEntryCount(findCharacterBook(loadedCard));
+    const lorebookInfo = cardBookEntries
+      ? { has: true, count: cardBookEntries }
+      : profileLorebookInfo(character);
+    // Images written into the text render inline; the strip is only for
     // images the API lists separately, so nothing appears twice.
-    const inlineUrls = new Set(description.images.map((image) => image.url));
+    const inlineUrls = new Set(
+      [profileDescription, ...tabs].flatMap((item) => item.images.map((image) => image.url)),
+    );
     const gallery = collectGalleryImages(character, apiOrigin()).filter(
       (image) => image.url !== avatarUrl && !inlineUrls.has(image.url),
     );
+    const richKey = `${characterId}:${activeTab?.id || "profile"}`;
     const descriptionLong =
       description.plain.length > 900 || description.images.length > 2;
-    const descriptionExpanded = state.expandedDescriptions.has(characterId);
+    const descriptionExpanded = state.expandedDescriptions.has(richKey);
     modalHost.innerHTML = `
       <div class="dcv1-modal-layer" data-character-backdrop>
         <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
@@ -4659,14 +4727,27 @@ export function setup(ctx) {
                 : ""}
               <section class="dcv1-detail-section">
                 <h2 class="dcv1-detail-heading">About</h2>
+                ${tabs.length > 1
+                  ? `<div class="dcv1-card-tabs" role="tablist">${tabs
+                      .map(
+                        (tab) => `<button class="dcv1-card-tab" type="button" role="tab" aria-selected="${tab === activeTab}" data-card-id="${escapeAttribute(characterId)}" data-card-tab="${escapeAttribute(tab.id)}">${escapeHtml(tab.label)}${tab.count ? ` <span>${tab.count}</span>` : ""}</button>`,
+                      )
+                      .join("")}</div>`
+                  : ""}
                 ${description.html
                   ? `<div class="dcv1-rich-wrap" data-collapsed="${descriptionLong && !descriptionExpanded}">
                       <div class="dcv1-rich">${description.html}</div>
                     </div>
                     ${descriptionLong
-                      ? `<button class="dcv1-rich-toggle" type="button" data-rich-toggle="${escapeAttribute(characterId)}" aria-expanded="${descriptionExpanded}">${descriptionExpanded ? "Show less" : "Show full description"}</button>`
+                      ? `<button class="dcv1-rich-toggle" type="button" data-rich-toggle="${escapeAttribute(richKey)}" aria-expanded="${descriptionExpanded}">${descriptionExpanded ? "Show less" : "Show full text"}</button>`
                       : ""}`
                   : `<p class="dcv1-rich-empty">No description available.</p>`}
+                ${loadedCard
+                  ? ""
+                  : `<div class="dcv1-card-load">
+                      <button class="dcv1-button" type="button" data-load-card="${escapeAttribute(characterId)}" ${cardLoading ? 'data-loading="true"' : ""} ${cardLoading || state.importId || state.cardLoadingId ? "disabled" : ""}>${cardLoading ? "Loading full card…" : cardError ? "Try again" : "Load full card"}</button>
+                      <span>${cardError ? escapeHtml(cardError) : "Greeting, scenario, example dialogue and images. Needs the Datacat security check."}</span>
+                    </div>`}
               </section>
               ${gallery.length
                 ? `<section class="dcv1-detail-section">
@@ -4702,7 +4783,7 @@ export function setup(ctx) {
                   <button class="dcv1-button" type="button" data-chat-import="${escapeAttribute(lumiverseCharacterId)}" ${isOpeningChat ? 'data-loading="true" aria-busy="true" aria-label="Opening chat"' : ""} ${state.chatOpeningId ? "disabled" : ""}>${isOpeningChat ? "" : "Chat"}</button>
                 `
               : `
-                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId ? "disabled" : ""}>
+                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId || state.cardLoadingId ? "disabled" : ""}>
                     ${isImporting ? "Importing…" : "Import"}
                   </button>
                 `}
@@ -6076,8 +6157,66 @@ export function setup(ctx) {
     }
   }
 
+  // Preview the full card (greeting, scenario, images in the description).
+  // The card is a protected transfer, so this only runs on an explicit click
+  // and goes through the same Datacat security check as an import.
+  async function loadCardPreview(id) {
+    if (!id || state.importId || state.cardLoadingId || state.cardCache.has(id)) return;
+    const summary = findCharacterById(id) || state.selected;
+    const requestedName = summary?.name || "character";
+    const existingLease = getVerificationLease();
+    const popup = existingLease
+      ? null
+      : window.open(
+          verificationPopupWaitingUrl(),
+          "datacat-client-verification",
+          "popup=yes,width=560,height=720",
+        );
+    state.cardErrors.delete(id);
+    if (!existingLease && !popup) {
+      state.cardErrors.set(
+        id,
+        publicErrorMessage(
+          verificationPopupBlockedError(),
+          "Allow pop-ups for Lumiverse to complete the Datacat security check.",
+        ),
+      );
+      render();
+      return;
+    }
+    state.cardLoadingId = id;
+    render();
+    try {
+      const transfer = await resolveImportTransferContract(summary || { id }, id);
+      const card = await withImportVerification(requestedName, popup, () =>
+        datacatFetch(transfer.cardPath),
+      );
+      if (!card || typeof card !== "object") {
+        throw new Error("Datacat returned an empty card.");
+      }
+      state.cardCache.set(id, card);
+    } catch (error) {
+      const cancelled =
+        error?.code === "VERIFICATION_CANCELLED" ||
+        error?.code === "VERIFICATION_WINDOW_CLOSED";
+      state.cardErrors.set(
+        id,
+        cancelled
+          ? "Security check was not completed. Try again when you're ready."
+          : error?.retryAfter
+            ? `${publicErrorMessage(error, "Could not load the full card.")} Retry in ${error.retryAfter}s.`
+            : publicErrorMessage(error, "Could not load the full card."),
+      );
+    } finally {
+      closeVerificationPopup(popup);
+      if (state.importFeedback?.tone === "verification") setImportFeedback(null);
+      state.cardLoadingId = "";
+      render();
+    }
+  }
+
   async function importCharacter(id) {
-    if (!id || state.importId) return;
+    if (!id || state.importId || state.cardLoadingId) return;
     const existingCharacterId = savedLumiverseId(id);
     if (existingCharacterId) {
       setImportFeedback({
@@ -6127,11 +6266,15 @@ export function setup(ctx) {
         summary || { id },
         id,
       );
-      const card = await withImportVerification(
-        requestedName,
-        verificationPopup,
-        () => datacatFetch(transfer.cardPath),
-      );
+      // Reuse a card already loaded for the preview; import mutates it.
+      const previewedCard = state.cardCache.get(id);
+      const card = previewedCard
+        ? structuredClone(previewedCard)
+        : await withImportVerification(
+            requestedName,
+            verificationPopup,
+            () => datacatFetch(transfer.cardPath),
+          );
       const importedAt = new Date().toISOString();
       ensureBookInExtensions(card);
       const lorebookEntries = lorebookEntryCount(findCharacterBook(card));
@@ -6516,6 +6659,20 @@ export function setup(ctx) {
         modalHost.append(box);
         box.focus({ preventScroll: true });
       }
+      return;
+    }
+    const loadCard = target.closest("[data-load-card]");
+    if (loadCard) {
+      void loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")));
+      return;
+    }
+    const cardTabButton = target.closest("[data-card-tab]");
+    if (cardTabButton) {
+      state.cardTabChoice.set(
+        normalizeId(cardTabButton.getAttribute("data-card-id")),
+        cardTabButton.getAttribute("data-card-tab"),
+      );
+      renderCharacterModal();
       return;
     }
     const richToggle = target.closest("[data-rich-toggle]");

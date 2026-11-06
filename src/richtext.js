@@ -295,3 +295,65 @@ export function profileLorebookInfo(character) {
   const count = Number.isFinite(entryCount) && entryCount > 0 ? entryCount : 0;
   return { has: flag || tagged || count > 0, count };
 }
+
+// ── Full card preview ───────────────────────────────────────────────────────
+
+const CARD_TEXT_TABS = [
+  ["description", "Description", ["description"]],
+  ["notes", "Creator Notes", ["creator_notes", "creatorNotes"]],
+  ["greeting", "Greeting", ["first_mes", "firstMes", "first_message"]],
+  ["scenario", "Scenario", ["scenario"]],
+  ["example", "Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],
+];
+
+function cardField(card, keys) {
+  for (const holder of [card?.data, card]) {
+    if (!holder || typeof holder !== "object") continue;
+    for (const key of keys) {
+      const value = holder[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+  }
+  return "";
+}
+
+/**
+ * Turn a character card (V2 spec or flat) into display tabs.
+ * Only non-empty fields get a tab. `fallbackDescription` fills the
+ * Description tab when the card itself has none.
+ */
+export function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = "" } = {}) {
+  const tabs = [];
+  const add = (id, label, source, count) => {
+    const rendered = renderRichText(source, { origin });
+    if (!rendered.html) return;
+    tabs.push({ id, label, count, ...rendered });
+  };
+  for (const [id, label, keys] of CARD_TEXT_TABS) {
+    let source = cardField(card, keys);
+    if (!source && id === "description") source = fallbackDescription;
+    if (source) add(id, label, source);
+  }
+  const alts = [card?.data?.alternate_greetings, card?.alternate_greetings, card?.alternateGreetings]
+    .find((list) => Array.isArray(list));
+  const greetings = (alts || []).filter((text) => typeof text === "string" && text.trim());
+  if (greetings.length) {
+    const rendered = greetings.map((text) => renderRichText(text, { origin }));
+    const html = rendered
+      .map((item, index) => `<div class="dcv1-alt-greeting"><h3>Greeting ${index + 2}</h3>${item.html}</div>`)
+      .join("");
+    const seen = new Set();
+    const images = rendered
+      .flatMap((item) => item.images)
+      .filter((image) => !seen.has(image.url) && seen.add(image.url));
+    tabs.push({
+      id: "alts",
+      label: "Alt Greetings",
+      count: greetings.length,
+      html,
+      images,
+      plain: rendered.map((item) => item.plain).join("\n\n"),
+    });
+  }
+  return tabs;
+}
