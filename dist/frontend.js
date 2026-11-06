@@ -42,6 +42,251 @@ function uuidv7() {
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
+// src/richtext.js
+var ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+function safeUrl(value, origin = "https://datacat.run") {
+  const raw = String(value || "").trim().replace(/&amp;/g, "&");
+  if (!raw || /^(javascript|data|vbscript):/i.test(raw))
+    return "";
+  try {
+    const url = new URL(raw, origin);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch (_) {
+    return "";
+  }
+}
+var LAYOUT_TAGS = "div|span|p|center|font|section|article|header|footer|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|details|summary|small|big|u|s|strike|del|ins|sub|sup|mark|style|script|iframe|video|audio|source|svg|figure|figcaption|h[1-6]|pre|code|blockquote|label|button|form|input";
+function normalizeHtml(source) {
+  let text = String(source ?? "").replace(/\r\n?/g, `
+`);
+  text = text.replace(/<!--[\s\S]*?-->/g, "");
+  text = text.replace(/<(script|style|iframe|svg|video|audio)\b[\s\S]*?<\/\1>/gi, "");
+  text = text.replace(/<img\b[^>]*>/gi, (tag) => {
+    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
+    if (!src)
+      return "";
+    const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    return `
+![${(alt?.[1] ?? alt?.[2] ?? "").replace(/[\[\]]/g, "")}](${(src[1] ?? src[2] ?? src[3]).trim()})
+`;
+  });
+  text = text.replace(/<br\s*\/?>/gi, `
+`);
+  text = text.replace(/<hr\s*\/?>/gi, `
+
+---
+
+`);
+  text = text.replace(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/gi, (_, a, b, inner) => `[${inner.replace(/<[^>]+>/g, "").trim() || a || b}](${a ?? b})`);
+  text = text.replace(/<(b|strong)\b[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
+  text = text.replace(/<(i|em)\b[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
+  text = text.replace(/<\/(p|div|section|article|header|footer|tr|li|h[1-6]|figure|details)>/gi, `
+
+`);
+  text = text.replace(new RegExp(`</?(?:${LAYOUT_TAGS})\\b[^>]*>`, "gi"), "");
+  return text;
+}
+function renderInline(text, ctx) {
+  const stash = [];
+  const hold = (html) => `\x00${stash.push(html) - 1}\x00`;
+  let out = esc(text);
+  out = out.replace(/`([^`\n]+)`/g, (_, code) => hold(`<code>${code}</code>`));
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (_, alt, href) => {
+    const url = safeUrl(href, ctx.origin);
+    if (!url)
+      return "";
+    ctx.images.push({ url, alt: alt.trim() });
+    return hold(`<img class="dcv1-rich-img" src="${esc(url)}" alt="${alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-lightbox-src="${esc(url)}">`);
+  });
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (_, label, href) => {
+    const url = safeUrl(href, ctx.origin);
+    return url ? hold(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`) : label;
+  });
+  out = out.replace(/(^|[\s(]|&quot;|&#39;)(https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<)])+)/g, (_, lead, matched) => {
+    const href = matched.replace(/[.,;:!?]+$/, "");
+    const tail = matched.slice(href.length);
+    const url = safeUrl(href, ctx.origin);
+    return url ? `${lead}${hold(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${href}</a>`)}${tail}` : `${lead}${matched}`;
+  });
+  out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>").replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^\w*])__([^_\n]+)__(?!\w)/g, "$1<strong>$2</strong>").replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?!\w)/g, "$1<em>$2</em>").replace(/(^|[^\w_])_([^_\s][^_\n]*?)_(?!\w)/g, "$1<em>$2</em>").replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  let guard = 0;
+  while (/\u0000\d+\u0000/.test(out) && guard++ < 5) {
+    out = out.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[Number(i)] ?? "");
+  }
+  return out;
+}
+function renderRichText(source, { origin = "https://datacat.run" } = {}) {
+  const ctx = { origin, images: [] };
+  const lines = normalizeHtml(source).split(`
+`);
+  const html = [];
+  let paragraph = [];
+  let list = null;
+  let quote = [];
+  let fence = null;
+  const flushParagraph = () => {
+    if (!paragraph.length)
+      return;
+    html.push(`<p>${paragraph.map((line) => renderInline(line, ctx)).join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list)
+      return;
+    html.push(`<${list.tag}>${list.items.map((item) => `<li>${renderInline(item, ctx)}</li>`).join("")}</${list.tag}>`);
+    list = null;
+  };
+  const flushQuote = () => {
+    if (!quote.length)
+      return;
+    html.push(`<blockquote>${quote.map((line) => renderInline(line, ctx)).join("<br>")}</blockquote>`);
+    quote = [];
+  };
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/, "");
+    if (fence) {
+      if (/^```/.test(line.trim())) {
+        html.push(`<pre><code>${esc(fence.join(`
+`))}</code></pre>`);
+        fence = null;
+      } else {
+        fence.push(rawLine);
+      }
+      continue;
+    }
+    if (/^```/.test(line.trim())) {
+      flushAll();
+      fence = [];
+      continue;
+    }
+    if (!line.trim()) {
+      flushAll();
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.*?)\s*#*$/.exec(line);
+    if (heading) {
+      flushAll();
+      const level = Math.min(6, heading[1].length + 1);
+      html.push(`<h${level}>${renderInline(heading[2], ctx)}</h${level}>`);
+      continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      flushAll();
+      html.push("<hr>");
+      continue;
+    }
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      flushParagraph();
+      flushQuote();
+      const tag = bullet ? "ul" : "ol";
+      if (list && list.tag !== tag)
+        flushList();
+      list ||= { tag, items: [] };
+      list.items.push((bullet || numbered)[1]);
+      continue;
+    }
+    const quoted = /^\s*>\s?(.*)$/.exec(line);
+    if (quoted) {
+      flushParagraph();
+      flushList();
+      quote.push(quoted[1]);
+      continue;
+    }
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+  }
+  if (fence)
+    html.push(`<pre><code>${esc(fence.join(`
+`))}</code></pre>`);
+  flushAll();
+  const seen = new Set;
+  const images = ctx.images.filter((image) => !seen.has(image.url) && seen.add(image.url));
+  return {
+    html: html.join(""),
+    images,
+    plain: normalizeHtml(source).replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
+  };
+}
+function snippetText(source, maxLength = 400) {
+  const text = normalizeHtml(source).replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^\s*>\s?/gm, "").replace(/(\*\*|__|~~|`)/g, "").replace(/(^|\s)[*_]+(?=\S)|(?<=\S)[*_]+(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
+}
+function collectGalleryImages(character, origin = "https://datacat.run") {
+  const sources = [
+    character?.images,
+    character?.gallery,
+    character?.galleryImages,
+    character?.gallery_images,
+    character?.media,
+    character?.screenshots
+  ];
+  const found = [];
+  for (const group of sources) {
+    const items = Array.isArray(group) ? group : Array.isArray(group?.items) ? group.items : [];
+    for (const item of items) {
+      const raw = typeof item === "string" ? item : item?.url || item?.src || item?.imageUrl || item?.image?.url || "";
+      const url = safeUrl(raw, origin);
+      if (!url)
+        continue;
+      if (item?.status && String(item.status).toLowerCase() !== "ready")
+        continue;
+      found.push({
+        url,
+        alt: typeof item === "object" ? String(item?.caption || item?.alt || "") : ""
+      });
+    }
+  }
+  const seen = new Set;
+  return found.filter((image) => !seen.has(image.url) && seen.add(image.url));
+}
+function findCharacterBook(card) {
+  const source = card && typeof card === "object" ? card : {};
+  const candidates = [
+    source.data?.character_book,
+    source.extensions?.character_book,
+    source.data?.extensions?.character_book,
+    source.character_book,
+    source.characterBook
+  ];
+  return candidates.find((book) => book && typeof book === "object") || null;
+}
+function lorebookEntryCount(book) {
+  const entries = Array.isArray(book?.entries) ? book.entries : book?.entries && typeof book.entries === "object" ? Object.values(book.entries) : [];
+  return entries.filter((entry) => entry && String(entry.content ?? entry.text ?? "").trim()).length;
+}
+function ensureBookInExtensions(card) {
+  if (!card || typeof card !== "object")
+    return card;
+  const book = findCharacterBook(card);
+  if (!book)
+    return card;
+  if (card.spec && card.data)
+    return card;
+  if (card.extensions?.character_book)
+    return card;
+  card.extensions = {
+    ...card.extensions && typeof card.extensions === "object" ? card.extensions : {},
+    character_book: book
+  };
+  return card;
+}
+function profileLorebookInfo(character) {
+  const entryCount = Number(character?.lorebookEntryCount ?? character?.lorebookEntries ?? character?.stats?.lorebookEntries ?? character?.lorebook?.entryCount ?? character?.lorebook?.entries?.length ?? character?.characterBook?.entries?.length ?? 0);
+  const flag = character?.hasLorebook === true || character?.has_lorebook === true || Boolean(character?.lorebook) || Boolean(character?.characterBook);
+  const tagged = [...character?.tags || [], ...character?.customTags || []].map((tag) => String(typeof tag === "string" ? tag : tag?.name || tag?.label || "").toLowerCase()).some((tag) => /lore\s*-?book|world\s*-?(book|info)/.test(tag));
+  const count = Number.isFinite(entryCount) && entryCount > 0 ? entryCount : 0;
+  return { has: flag || tagged || count > 0, count };
+}
+
 // src/frontend.js
 var VERSION = "0.5.48";
 var DISPLAY_VERSION = "0.1";
@@ -2359,8 +2604,8 @@ function setup(ctx) {
       backdrop-filter: blur(5px);
     }
     .dcv1-character-modal {
-      width: min(940px, calc(100vw - 48px));
-      height: min(760px, calc(100dvh - 48px));
+      width: min(1080px, calc(100vw - 48px));
+      height: min(820px, calc(100dvh - 48px));
       max-height: calc(100dvh - 48px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
@@ -2389,7 +2634,7 @@ function setup(ctx) {
     .dcv1-character-modal-body {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(240px, 42%) minmax(0, 1fr);
+      grid-template-columns: minmax(240px, 36%) minmax(0, 1fr);
       overflow: hidden;
     }
     .dcv1-character-hero {
@@ -2446,7 +2691,8 @@ function setup(ctx) {
     .dcv1-character-info {
       min-height: 0;
       overflow: auto;
-      padding: 22px;
+      padding: 28px 32px 32px;
+      scrollbar-gutter: stable;
     }
     .dcv1-character-name {
       margin: 0;
@@ -2459,12 +2705,188 @@ function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
-    .dcv1-character-description {
-      margin: 18px 0 0;
-      color: #ded4e2;
+    .dcv1-detail-section {
+      margin-top: 26px;
+      min-width: 0;
+    }
+    .dcv1-detail-heading {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0 0 11px;
+      padding-bottom: 8px;
+      color: var(--dc-yellow);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .dcv1-detail-heading span {
+      padding: 1px 7px;
+      color: var(--dc-muted);
+      border-radius: 999px;
+      background: rgba(255,255,255,.07);
+      font-size: 10px;
+      letter-spacing: 0;
+    }
+    .dcv1-detail-section .dcv1-profile-tags { margin-top: 0; }
+    .dcv1-lore-chip {
+      width: fit-content;
+      max-width: 100%;
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      margin-top: 16px;
+      padding: 6px 12px;
+      color: #f4e3ff;
+      border: 1px solid rgba(192, 142, 240, .5);
+      border-radius: 999px;
+      background: rgba(116, 73, 163, .28);
       font-size: 12px;
-      line-height: 1.65;
-      white-space: pre-wrap;
+    }
+    .dcv1-lore-chip span:last-child {
+      color: var(--dc-muted);
+      font-size: 11px;
+    }
+    .dcv1-rich-wrap {
+      position: relative;
+      overflow: hidden;
+    }
+    .dcv1-rich-wrap[data-collapsed="true"] { max-height: 320px; }
+    .dcv1-rich-wrap[data-collapsed="true"]::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 96px;
+      pointer-events: none;
+      background: linear-gradient(to bottom, rgba(23,16,31,0), #17101f);
+    }
+    .dcv1-rich {
+      max-width: 72ch;
+      color: #e8dfec;
+      font-size: 14px;
+      line-height: 1.72;
+      overflow-wrap: anywhere;
+    }
+    .dcv1-rich > :first-child { margin-top: 0; }
+    .dcv1-rich > :last-child { margin-bottom: 0; }
+    .dcv1-rich p { margin: 0 0 1em; }
+    .dcv1-rich h2,
+    .dcv1-rich h3,
+    .dcv1-rich h4,
+    .dcv1-rich h5,
+    .dcv1-rich h6 {
+      margin: 1.5em 0 .55em;
+      color: var(--dc-text);
+      line-height: 1.3;
+    }
+    .dcv1-rich h2 { font-size: 18px; }
+    .dcv1-rich h3 { font-size: 16px; }
+    .dcv1-rich h4,
+    .dcv1-rich h5,
+    .dcv1-rich h6 { font-size: 14px; }
+    .dcv1-rich ul,
+    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.4em; }
+    .dcv1-rich li { margin: .3em 0; }
+    .dcv1-rich blockquote {
+      margin: 0 0 1em;
+      padding: 6px 0 6px 14px;
+      color: #cbbfd1;
+      border-left: 3px solid rgba(246, 200, 76, .45);
+    }
+    .dcv1-rich hr {
+      margin: 1.4em 0;
+      border: 0;
+      border-top: 1px solid rgba(255,255,255,.12);
+    }
+    .dcv1-rich code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: rgba(255,255,255,.08);
+      font-size: .9em;
+    }
+    .dcv1-rich pre {
+      margin: 0 0 1em;
+      padding: 10px 12px;
+      overflow: auto;
+      border-radius: 10px;
+      background: rgba(0,0,0,.35);
+    }
+    .dcv1-rich pre code { padding: 0; background: none; }
+    .dcv1-rich a { color: var(--dc-yellow); }
+    .dcv1-rich-img {
+      max-width: 100%;
+      max-height: 420px;
+      display: block;
+      margin: .4em 0 1em;
+      border-radius: 12px;
+      object-fit: contain;
+      background: rgba(255,255,255,.04);
+      cursor: zoom-in;
+    }
+    .dcv1-rich-toggle {
+      margin-top: 12px;
+      padding: 6px 14px;
+      color: var(--dc-yellow);
+      border: 1px solid rgba(246, 200, 76, .35);
+      border-radius: 999px;
+      background: rgba(246, 200, 76, .08);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .dcv1-rich-toggle:hover { background: rgba(246, 200, 76, .16); }
+    .dcv1-rich-empty {
+      margin: 0;
+      color: var(--dc-muted);
+      font-size: 13px;
+    }
+    .dcv1-gallery {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 132px;
+      gap: 10px;
+      padding-bottom: 6px;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+    }
+    .dcv1-gallery-item {
+      width: 132px;
+      height: 132px;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      cursor: zoom-in;
+      scroll-snap-align: start;
+    }
+    .dcv1-gallery-item:hover,
+    .dcv1-gallery-item:focus-visible { border-color: var(--dc-yellow); }
+    .dcv1-gallery-item img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .dcv1-lightbox {
+      position: absolute;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      outline: none;
+      background: rgba(4, 3, 7, .92);
+      cursor: zoom-out;
+    }
+    .dcv1-lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 10px;
+      object-fit: contain;
     }
     .dcv1-character-modal-actions {
       display: flex;
@@ -2776,7 +3198,7 @@ function setup(ctx) {
         -webkit-overflow-scrolling: touch;
       }
       .dcv1-character-hero {
-        height: min(58vh, 520px);
+        height: min(40vh, 360px);
       }
       .dcv1-character-info {
         overflow: visible;
@@ -2977,6 +3399,7 @@ function setup(ctx) {
     selected: null,
     selectedLoading: false,
     selectedError: "",
+    expandedDescriptions: new Set,
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4025,6 +4448,14 @@ function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published]
     ].filter(([, value]) => String(value || "").trim());
+    const description = renderRichText(character.description, {
+      origin: apiOrigin()
+    });
+    const lorebookInfo = profileLorebookInfo(character);
+    const inlineUrls = new Set(description.images.map((image) => image.url));
+    const gallery = collectGalleryImages(character, apiOrigin()).filter((image) => image.url !== avatarUrl && !inlineUrls.has(image.url));
+    const descriptionLong = description.plain.length > 900 || description.images.length > 2;
+    const descriptionExpanded = state.expandedDescriptions.has(characterId);
     modalHost.innerHTML = `
       <div class="dcv1-modal-layer" data-character-backdrop>
         <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
@@ -4046,8 +4477,27 @@ function setup(ctx) {
                 by ${creatorRef ? `<button class="dcv1-creator-link" type="button" data-creator-ref="${escapeAttribute(creatorRef)}">${escapeHtml(creator)}</button>` : escapeHtml(creator)}
               </div>
               ${statItems.length ? `<div class="dcv1-character-stat-strip">${statItems.map(([label, value]) => `<div class="dcv1-stat"><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(label)}</span></div>`).join("")}</div>` : ""}
-              <div class="dcv1-character-description">${escapeHtml(character.description || "No description available.")}</div>
-              ${tags.length ? `<div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
+              ${lorebookInfo.has ? `<div class="dcv1-lore-chip" title="This character ships with a lorebook that is imported into Lumiverse automatically.">
+                    <span aria-hidden="true">\uD83D\uDCD6</span>
+                    <strong>Lorebook</strong>${lorebookInfo.count ? `<span>${lorebookInfo.count} ${lorebookInfo.count === 1 ? "entry" : "entries"}</span>` : ""}
+                  </div>` : ""}
+              <section class="dcv1-detail-section">
+                <h2 class="dcv1-detail-heading">About</h2>
+                ${description.html ? `<div class="dcv1-rich-wrap" data-collapsed="${descriptionLong && !descriptionExpanded}">
+                      <div class="dcv1-rich">${description.html}</div>
+                    </div>
+                    ${descriptionLong ? `<button class="dcv1-rich-toggle" type="button" data-rich-toggle="${escapeAttribute(characterId)}" aria-expanded="${descriptionExpanded}">${descriptionExpanded ? "Show less" : "Show full description"}</button>` : ""}` : `<p class="dcv1-rich-empty">No description available.</p>`}
+              </section>
+              ${gallery.length ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Images <span>${gallery.length}</span></h2>
+                    <div class="dcv1-gallery">${gallery.map((image) => `<button class="dcv1-gallery-item" type="button" data-lightbox-src="${escapeAttribute(image.url)}" aria-label="${escapeAttribute(image.alt || "Open image")}">
+                          <img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                        </button>`).join("")}</div>
+                  </section>` : ""}
+              ${tags.length ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Tags</h2>
+                    <div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>
+                  </section>` : ""}
               ${renderCharacterCommunity(characterId)}
               ${state.selectedLoading ? `<div class="dcv1-status">Loading complete character details…</div>` : ""}
             </div>
@@ -4195,7 +4645,7 @@ function setup(ctx) {
             ${creatorRef ? `<button class="dcv1-creator-link" type="button" data-creator-ref="${escapeAttribute(creatorRef)}">${escapeHtml(creator)}</button>` : escapeHtml(creator)}
             ${spottedBy ? ` · Spotted by @${escapeHtml(spottedBy)}` : ""}
           </div>
-          <p class="dcv1-fresh-description">${escapeHtml(character.description || "")}</p>
+          <p class="dcv1-fresh-description">${escapeHtml(snippetText(character.description, 320))}</p>
           ${tags.length ? `<div class="dcv1-fresh-tags">${tags.map((tag) => `<span class="dcv1-fresh-tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
         </div>
         <div class="dcv1-fresh-rail">
@@ -4810,6 +5260,7 @@ function setup(ctx) {
       if (selectedSerial !== state.selectedSerial)
         return;
       state.selected = { ...summary, ...payload.character || {}, id };
+      console.debug("[Datacat] profile fields:", Object.keys(payload.character || {}).sort().join(", "));
     } catch (error) {
       if (selectedSerial !== state.selectedSerial)
         return;
@@ -5093,6 +5544,25 @@ function setup(ctx) {
       return transfer();
     }
   }
+  async function confirmLorebookImport(lumiverseCharacterId, expectedEntries) {
+    const plural = (count) => `${count} ${count === 1 ? "entry" : "entries"}`;
+    try {
+      const response = await fetch("/api/v1/world-books/import-character-book", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ characterId: lumiverseCharacterId })
+      });
+      const result = await readJson(response);
+      const count = Number(result?.entry_count) || expectedEntries;
+      return `Lorebook imported and linked · ${plural(count)}`;
+    } catch (_) {
+      return `The card includes a lorebook (${plural(expectedEntries)}) but it could not be linked automatically. Import it from the character's World Books.`;
+    }
+  }
   async function importCharacter(id) {
     if (!id || state.importId)
       return;
@@ -5135,6 +5605,9 @@ function setup(ctx) {
       const transfer = await resolveImportTransferContract(summary || { id }, id);
       const card = await withImportVerification(requestedName, verificationPopup, () => datacatFetch(transfer.cardPath));
       const importedAt = new Date().toISOString();
+      ensureBookInExtensions(card);
+      const lorebookEntries = lorebookEntryCount(findCharacterBook(card));
+      const profileListsLorebook = profileLorebookInfo(transfer.character).has;
       if (card && typeof card === "object") {
         card.extensions = {
           ...card.extensions && typeof card.extensions === "object" ? card.extensions : {},
@@ -5180,10 +5653,17 @@ function setup(ctx) {
         name,
         importedAt
       });
+      let lorebookDetail = "";
+      if (lorebookEntries > 0) {
+        lorebookDetail = await confirmLorebookImport(lumiverseCharacter.id, lorebookEntries);
+      } else if (profileListsLorebook) {
+        lorebookDetail = "Datacat lists a lorebook for this character, but it was not included in the card Datacat served.";
+      }
       setStatus("");
       setImportFeedback({
         tone: "success",
         title: `${name} imported to Lumiverse`,
+        detail: lorebookDetail,
         datacatCharacterId: id,
         lumiverseCharacterId: lumiverseCharacter.id
       });
@@ -5390,6 +5870,42 @@ function setup(ctx) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target)
       return;
+    const openLightbox = modalHost.querySelector(".dcv1-lightbox");
+    if (openLightbox) {
+      openLightbox.remove();
+      if (!target.closest("[data-lightbox-src]"))
+        return;
+    }
+    const lightboxSource = target.closest("[data-lightbox-src]");
+    if (lightboxSource) {
+      const url = lightboxSource.getAttribute("data-lightbox-src") || "";
+      if (/^https?:\/\//i.test(url)) {
+        event.preventDefault();
+        const box = document.createElement("div");
+        box.className = "dcv1-lightbox";
+        box.tabIndex = -1;
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-label", "Image preview");
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.referrerPolicy = "no-referrer";
+        box.append(img);
+        modalHost.append(box);
+        box.focus({ preventScroll: true });
+      }
+      return;
+    }
+    const richToggle = target.closest("[data-rich-toggle]");
+    if (richToggle) {
+      const id = normalizeId(richToggle.getAttribute("data-rich-toggle"));
+      if (state.expandedDescriptions.has(id))
+        state.expandedDescriptions.delete(id);
+      else
+        state.expandedDescriptions.add(id);
+      renderCharacterModal();
+      return;
+    }
     if (target.closest("[data-sort-toggle]")) {
       if (!state.catalogSortLoading)
         setCatalogSortOpen(catalogSortMenu.hidden);
@@ -5710,6 +6226,14 @@ function setup(ctx) {
       openProfile(normalizeId(card.getAttribute("data-card")));
   }
   function handleSurfaceKeydown(event) {
+    if (event.key === "Escape") {
+      const lightbox = modalHost.querySelector(".dcv1-lightbox");
+      if (lightbox) {
+        event.preventDefault();
+        lightbox.remove();
+        return;
+      }
+    }
     if (event.key === "Escape" && (state.selected || state.selectedLoading || state.selectedError)) {
       event.preventDefault();
       closeCharacterModal();
