@@ -298,9 +298,10 @@ export function profileLorebookInfo(character) {
 
 // ── Full card preview ───────────────────────────────────────────────────────
 
+// Order matters: the first tab with content is the default view.
 const CARD_TEXT_TABS = [
+  ["notes", "Creator Notes", ["creator_notes", "creatorNotes", "creatorcomment"]],
   ["description", "Description", ["description"]],
-  ["notes", "Creator Notes", ["creator_notes", "creatorNotes"]],
   ["greeting", "Greeting", ["first_mes", "firstMes", "first_message"]],
   ["scenario", "Scenario", ["scenario"]],
   ["example", "Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],

@@ -2423,21 +2423,24 @@ export function setup(ctx) {
       z-index: 35;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: 0;
       background: rgba(4, 3, 7, .78);
       backdrop-filter: blur(5px);
     }
+    /* Full view is the default: the character modal always fills the screen. */
     .dcv1-character-modal {
-      width: min(1080px, calc(100vw - 48px));
-      height: min(820px, calc(100dvh - 48px));
-      max-height: calc(100dvh - 48px);
+      width: 100vw;
+      height: 100dvh;
+      max-height: none;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       overflow: hidden;
-      border: 1px solid rgba(246, 200, 76, .3);
-      border-radius: 20px;
+      border: 0;
+      border-radius: 0;
       background: #17101f;
-      box-shadow: 0 28px 80px rgba(0,0,0,.66);
     }
     .dcv1-character-modal-head {
       display: flex;
@@ -2573,19 +2576,6 @@ export function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
-    .dcv1-rich-wrap {
-      position: relative;
-      overflow: hidden;
-    }
-    .dcv1-rich-wrap[data-collapsed="true"] { max-height: 320px; }
-    .dcv1-rich-wrap[data-collapsed="true"]::after {
-      content: "";
-      position: absolute;
-      inset: auto 0 0 0;
-      height: 96px;
-      pointer-events: none;
-      background: linear-gradient(to bottom, rgba(23,16,31,0), #17101f);
-    }
     .dcv1-rich {
       max-width: 72ch;
       color: #e8dfec;
@@ -2649,19 +2639,6 @@ export function setup(ctx) {
       background: rgba(255,255,255,.04);
       cursor: zoom-in;
     }
-    .dcv1-rich-toggle {
-      margin-top: 12px;
-      padding: 6px 14px;
-      color: var(--dc-yellow);
-      border: 1px solid rgba(246, 200, 76, .35);
-      border-radius: 999px;
-      background: rgba(246, 200, 76, .08);
-      font: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .dcv1-rich-toggle:hover { background: rgba(246, 200, 76, .16); }
     .dcv1-rich-empty {
       margin: 0;
       color: var(--dc-muted);
@@ -2673,7 +2650,11 @@ export function setup(ctx) {
       margin: 0 0 14px;
       padding-bottom: 4px;
       overflow-x: auto;
+      scrollbar-width: none;
     }
+    .dcv1-card-tabs::-webkit-scrollbar { display: none; }
+    .dcv1-character-modal .dcv1-rich { max-width: 88ch; }
+    .dcv1-character-modal .dcv1-rich-img { max-height: 70vh; }
     .dcv1-card-tab {
       flex: none;
       padding: 6px 13px;
@@ -3283,11 +3264,10 @@ export function setup(ctx) {
     selected: null,
     selectedLoading: false,
     selectedError: "",
-    expandedDescriptions: new Set(),
     cardCache: new Map(),
     cardErrors: new Map(),
     cardTabChoice: new Map(),
-    cardLoadingId: "",
+    cardLoading: new Set(),
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4670,7 +4650,7 @@ export function setup(ctx) {
     const chosenTab = state.cardTabChoice.get(characterId);
     const activeTab = tabs.find((tab) => tab.id === chosenTab) || tabs[0] || null;
     const description = activeTab || profileDescription;
-    const cardLoading = state.cardLoadingId === characterId;
+    const cardLoading = state.cardLoading.has(characterId);
     const cardError = state.cardErrors.get(characterId) || "";
     const cardBookEntries = lorebookEntryCount(findCharacterBook(loadedCard));
     const lorebookInfo = cardBookEntries
@@ -4684,10 +4664,6 @@ export function setup(ctx) {
     const gallery = collectGalleryImages(character, apiOrigin()).filter(
       (image) => image.url !== avatarUrl && !inlineUrls.has(image.url),
     );
-    const richKey = `${characterId}:${activeTab?.id || "profile"}`;
-    const descriptionLong =
-      description.plain.length > 900 || description.images.length > 2;
-    const descriptionExpanded = state.expandedDescriptions.has(richKey);
     modalHost.innerHTML = `
       <div class="dcv1-modal-layer" data-character-backdrop>
         <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
@@ -4735,18 +4711,13 @@ export function setup(ctx) {
                       .join("")}</div>`
                   : ""}
                 ${description.html
-                  ? `<div class="dcv1-rich-wrap" data-collapsed="${descriptionLong && !descriptionExpanded}">
-                      <div class="dcv1-rich">${description.html}</div>
-                    </div>
-                    ${descriptionLong
-                      ? `<button class="dcv1-rich-toggle" type="button" data-rich-toggle="${escapeAttribute(richKey)}" aria-expanded="${descriptionExpanded}">${descriptionExpanded ? "Show less" : "Show full text"}</button>`
-                      : ""}`
+                  ? `<div class="dcv1-rich">${description.html}</div>`
                   : `<p class="dcv1-rich-empty">No description available.</p>`}
                 ${loadedCard
                   ? ""
                   : `<div class="dcv1-card-load">
-                      <button class="dcv1-button" type="button" data-load-card="${escapeAttribute(characterId)}" ${cardLoading ? 'data-loading="true"' : ""} ${cardLoading || state.importId || state.cardLoadingId ? "disabled" : ""}>${cardLoading ? "Loading full card…" : cardError ? "Try again" : "Load full card"}</button>
-                      <span>${cardError ? escapeHtml(cardError) : "Greeting, scenario, example dialogue and images. Needs the Datacat security check."}</span>
+                      <button class="dcv1-button" type="button" data-load-card="${escapeAttribute(characterId)}" ${cardLoading ? 'data-loading="true"' : ""} ${cardLoading || state.importId ? "disabled" : ""}>${cardLoading ? "Loading full card…" : cardError ? "Try again" : getVerificationLease() ? "Load full card" : "Verify & load full card"}</button>
+                      <span>${cardError ? escapeHtml(cardError) : cardLoading ? "Fetching the full card…" : getVerificationLease() ? "Greeting, scenario, example dialogue and images." : "One-time security check per session. After that, characters open in full view automatically."}</span>
                     </div>`}
               </section>
               ${gallery.length
@@ -4783,7 +4754,7 @@ export function setup(ctx) {
                   <button class="dcv1-button" type="button" data-chat-import="${escapeAttribute(lumiverseCharacterId)}" ${isOpeningChat ? 'data-loading="true" aria-busy="true" aria-label="Opening chat"' : ""} ${state.chatOpeningId ? "disabled" : ""}>${isOpeningChat ? "" : "Chat"}</button>
                 `
               : `
-                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId || state.cardLoadingId ? "disabled" : ""}>
+                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId || state.cardLoading.size ? "disabled" : ""}>
                     ${isImporting ? "Importing…" : "Import"}
                   </button>
                 `}
@@ -5790,6 +5761,9 @@ export function setup(ctx) {
         "[Datacat] profile fields:",
         Object.keys(payload.character || {}).sort().join(", "),
       );
+      // Full view is the default: once the Datacat security check is done for
+      // this session, every character loads its full card without extra clicks.
+      if (getVerificationLease()) queueMicrotask(() => void loadCardPreview(id));
     } catch (error) {
       if (selectedSerial !== state.selectedSerial) return;
       state.selectedError = publicErrorMessage(error, "Could not load profile.");
@@ -6161,7 +6135,7 @@ export function setup(ctx) {
   // The card is a protected transfer, so this only runs on an explicit click
   // and goes through the same Datacat security check as an import.
   async function loadCardPreview(id) {
-    if (!id || state.importId || state.cardLoadingId || state.cardCache.has(id)) return;
+    if (!id || state.importId || state.cardLoading.has(id) || state.cardCache.has(id)) return;
     const summary = findCharacterById(id) || state.selected;
     const requestedName = summary?.name || "character";
     const existingLease = getVerificationLease();
@@ -6184,7 +6158,7 @@ export function setup(ctx) {
       render();
       return;
     }
-    state.cardLoadingId = id;
+    state.cardLoading.add(id);
     render();
     try {
       const transfer = await resolveImportTransferContract(summary || { id }, id);
@@ -6210,13 +6184,13 @@ export function setup(ctx) {
     } finally {
       closeVerificationPopup(popup);
       if (state.importFeedback?.tone === "verification") setImportFeedback(null);
-      state.cardLoadingId = "";
+      state.cardLoading.delete(id);
       render();
     }
   }
 
   async function importCharacter(id) {
-    if (!id || state.importId || state.cardLoadingId) return;
+    if (!id || state.importId || state.cardLoading.size) return;
     const existingCharacterId = savedLumiverseId(id);
     if (existingCharacterId) {
       setImportFeedback({
@@ -6672,14 +6646,6 @@ export function setup(ctx) {
         normalizeId(cardTabButton.getAttribute("data-card-id")),
         cardTabButton.getAttribute("data-card-tab"),
       );
-      renderCharacterModal();
-      return;
-    }
-    const richToggle = target.closest("[data-rich-toggle]");
-    if (richToggle) {
-      const id = normalizeId(richToggle.getAttribute("data-rich-toggle"));
-      if (state.expandedDescriptions.has(id)) state.expandedDescriptions.delete(id);
-      else state.expandedDescriptions.add(id);
       renderCharacterModal();
       return;
     }
