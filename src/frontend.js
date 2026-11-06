@@ -2673,7 +2673,24 @@ export function setup(ctx) {
       margin: 0 0 14px;
       padding-bottom: 4px;
       overflow-x: auto;
+      scrollbar-width: none;
     }
+    .dcv1-card-tabs::-webkit-scrollbar { display: none; }
+    /* Full card loaded: use the whole screen. Attribute selectors outrank the
+       base and mobile rules, so this wins at every viewport size. */
+    .dcv1-modal-layer[data-fullcard="true"] { padding: 0; }
+    .dcv1-character-modal[data-fullcard="true"] {
+      width: 100vw;
+      height: 100dvh;
+      max-height: none;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      border: 0;
+      border-radius: 0;
+    }
+    .dcv1-character-modal[data-fullcard="true"] .dcv1-rich { max-width: 88ch; }
+    .dcv1-character-modal[data-fullcard="true"] .dcv1-rich-img { max-height: 70vh; }
     .dcv1-card-tab {
       flex: none;
       padding: 6px 13px;
@@ -4689,8 +4706,8 @@ export function setup(ctx) {
       description.plain.length > 900 || description.images.length > 2;
     const descriptionExpanded = state.expandedDescriptions.has(richKey);
     modalHost.innerHTML = `
-      <div class="dcv1-modal-layer" data-character-backdrop>
-        <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
+      <div class="dcv1-modal-layer" data-character-backdrop data-fullcard="${Boolean(loadedCard)}">
+        <article class="dcv1-character-modal" data-fullcard="${Boolean(loadedCard)}" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
           <header class="dcv1-character-modal-head">
             <span>DATACAT BROWSER - Character Details</span>
             <button class="dcv1-button" type="button" data-back aria-label="Close character">Close</button>
