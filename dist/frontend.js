@@ -3192,10 +3192,15 @@ function setup(ctx) {
       backdrop-filter: blur(5px);
     }
     /* Full view is the default: the character modal always fills the screen. */
-    .dcv1-character-modal {
-      width: 100vw;
-      height: 100dvh;
-      max-height: none;
+    .dcv1-page-modal-host .dcv1-character-modal {
+      position: fixed !important;
+      inset: 0 !important;
+      width: auto !important;
+      height: auto !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      transform: none !important;
       box-sizing: border-box;
       padding-top: env(safe-area-inset-top, 0px);
       padding-bottom: env(safe-area-inset-bottom, 0px);
