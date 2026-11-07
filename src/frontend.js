@@ -1,4 +1,16 @@
 import { uuidv7 } from "./uuidv7.js";
+import {
+  botPageUrl,
+  cardTabs,
+  collectGalleryImages,
+  ensureBookInExtensions,
+  findCharacterBook,
+  lorebookEntryCount,
+  profileLorebookInfo,
+  renderRichText,
+  retargetRetrievedBy,
+  snippetText,
+} from "./richtext.js";
 
 const VERSION = "0.5.48";
 const DISPLAY_VERSION = "0.1";
@@ -2413,21 +2425,29 @@ export function setup(ctx) {
       z-index: 35;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: 0;
       background: rgba(4, 3, 7, .78);
       backdrop-filter: blur(5px);
     }
-    .dcv1-character-modal {
-      width: min(940px, calc(100vw - 48px));
-      height: min(760px, calc(100dvh - 48px));
-      max-height: calc(100dvh - 48px);
+    /* Full view is the default: the character modal always fills the screen. */
+    .dcv1-page-modal-host .dcv1-character-modal {
+      position: fixed !important;
+      inset: 0 !important;
+      width: auto !important;
+      height: auto !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      transform: none !important;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       overflow: hidden;
-      border: 1px solid rgba(246, 200, 76, .3);
-      border-radius: 20px;
+      border: 0;
+      border-radius: 0;
       background: #17101f;
-      box-shadow: 0 28px 80px rgba(0,0,0,.66);
     }
     .dcv1-character-modal-head {
       display: flex;
@@ -2448,7 +2468,7 @@ export function setup(ctx) {
     .dcv1-character-modal-body {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(240px, 42%) minmax(0, 1fr);
+      grid-template-columns: minmax(240px, 36%) minmax(0, 1fr);
       overflow: hidden;
     }
     .dcv1-character-hero {
@@ -2505,7 +2525,8 @@ export function setup(ctx) {
     .dcv1-character-info {
       min-height: 0;
       overflow: auto;
-      padding: 22px;
+      padding: 28px 32px 32px;
+      scrollbar-gutter: stable;
     }
     .dcv1-character-name {
       margin: 0;
@@ -2518,12 +2539,290 @@ export function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
-    .dcv1-character-description {
-      margin: 18px 0 0;
-      color: #ded4e2;
+    .dcv1-detail-section {
+      margin-top: 26px;
+      min-width: 0;
+    }
+    .dcv1-detail-heading {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0 0 11px;
+      padding-bottom: 8px;
+      color: var(--dc-yellow);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .dcv1-detail-heading span {
+      padding: 1px 7px;
+      color: var(--dc-muted);
+      border-radius: 999px;
+      background: rgba(255,255,255,.07);
+      font-size: 10px;
+      letter-spacing: 0;
+    }
+    .dcv1-detail-section .dcv1-profile-tags { margin-top: 0; }
+    .dcv1-lore-chip {
+      width: fit-content;
+      max-width: 100%;
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      margin-top: 16px;
+      padding: 6px 12px;
+      color: #f4e3ff;
+      border: 1px solid rgba(192, 142, 240, .5);
+      border-radius: 999px;
+      background: rgba(116, 73, 163, .28);
       font-size: 12px;
-      line-height: 1.65;
-      white-space: pre-wrap;
+    }
+    .dcv1-lore-chip span:last-child {
+      color: var(--dc-muted);
+      font-size: 11px;
+    }
+    .dcv1-rich {
+      max-width: 88ch;
+      color: #ece4f1;
+      font-size: 15px;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+      text-wrap: pretty;
+    }
+    .dcv1-rich > :first-child { margin-top: 0; }
+    .dcv1-rich > :last-child { margin-bottom: 0; }
+    .dcv1-rich p { margin: 0 0 1em; }
+    .dcv1-rich li > p,
+    .dcv1-rich td > p,
+    .dcv1-rich th > p,
+    .dcv1-rich summary > p { margin: 0; }
+    .dcv1-rich strong { color: #fff; font-weight: 700; }
+    .dcv1-rich h2,
+    .dcv1-rich h3,
+    .dcv1-rich h4,
+    .dcv1-rich h5,
+    .dcv1-rich h6 {
+      margin: 1.7em 0 .6em;
+      color: inherit;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -.01em;
+    }
+    .dcv1-rich h2 {
+      padding-bottom: .3em;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      font-size: 1.55em;
+    }
+    .dcv1-rich h3 { font-size: 1.3em; }
+    .dcv1-rich h4 { font-size: 1.12em; }
+    .dcv1-rich h5,
+    .dcv1-rich h6 {
+      font-size: .8em;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
+    .dcv1-rich ul,
+    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.5em; }
+    .dcv1-rich li { margin: .3em 0; }
+    .dcv1-rich li::marker { color: var(--dc-yellow); }
+    .dcv1-rich blockquote {
+      margin: 0 0 1em;
+      padding: 10px 16px;
+      color: #d9cfe0;
+      border-left: 3px solid rgba(246, 200, 76, .55);
+      border-radius: 0 10px 10px 0;
+      background: rgba(255,255,255,.04);
+    }
+    .dcv1-rich hr {
+      height: 1px;
+      margin: 1.8em 0;
+      border: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+    }
+    .dcv1-rich code {
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: rgba(255,255,255,.09);
+      font-size: .88em;
+    }
+    .dcv1-rich pre {
+      margin: 0 0 1em;
+      padding: 12px 14px;
+      overflow: auto;
+      border-radius: 10px;
+      background: rgba(0,0,0,.38);
+    }
+    .dcv1-rich pre code { padding: 0; background: none; }
+    .dcv1-rich a {
+      color: var(--dc-yellow);
+      text-decoration-color: rgba(246, 200, 76, .4);
+      text-underline-offset: 2px;
+    }
+    .dcv1-rich mark {
+      padding: 0 3px;
+      color: inherit;
+      border-radius: 3px;
+      background: rgba(246, 200, 76, .28);
+    }
+    .dcv1-rich small { opacity: .8; }
+    .dcv1-rich-table {
+      max-width: 100%;
+      margin: 0 0 1em;
+      overflow-x: auto;
+    }
+    .dcv1-rich table { border-collapse: collapse; }
+    .dcv1-rich td,
+    .dcv1-rich th {
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,.13);
+      vertical-align: top;
+    }
+    .dcv1-rich th {
+      background: rgba(255,255,255,.07);
+      text-align: left;
+    }
+    .dcv1-rich details {
+      margin: 0 0 1em;
+      padding: 4px 16px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+    }
+    .dcv1-rich summary {
+      padding: 8px 0;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dcv1-rich details[open] > summary {
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-rich-img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: 85vh;
+      margin: .6em auto 1em;
+      border-radius: 12px;
+      object-fit: contain;
+      background: rgba(255,255,255,.04);
+      cursor: zoom-in;
+    }
+    .dcv1-rich-img[data-sized="true"] {
+      display: inline-block;
+      vertical-align: top;
+      margin: 0.3em 3px 0.6em;
+    }
+    .dcv1-rich-img[data-small="true"] {
+      display: inline-block;
+      width: auto;
+      margin: 0 4px;
+      vertical-align: middle;
+    }
+    .dcv1-rich [style*="flex"] > .dcv1-rich-img {
+      min-width: 0;
+      margin: 0;
+    }
+    .dcv1-rich-empty {
+      margin: 0;
+      color: var(--dc-muted);
+      font-size: 13px;
+    }
+    .dcv1-card-tabs {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 14px;
+      padding-bottom: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .dcv1-card-tabs::-webkit-scrollbar { display: none; }
+    .dcv1-card-tab {
+      flex: none;
+      padding: 6px 13px;
+      color: var(--dc-muted);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .dcv1-card-tab span { opacity: .7; }
+    .dcv1-card-tab[aria-selected="true"] {
+      color: #17101f;
+      border-color: var(--dc-yellow);
+      background: var(--dc-yellow);
+    }
+    .dcv1-alt-greeting + .dcv1-alt-greeting {
+      margin-top: 1.4em;
+      padding-top: 1.2em;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-alt-greeting > h3 { margin-top: 0; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
+    .dcv1-card-load {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 16px;
+      padding: 12px 14px;
+      border: 1px dashed rgba(255,255,255,.16);
+      border-radius: 12px;
+      color: var(--dc-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .dcv1-card-load span { flex: 1 1 200px; min-width: 0; }
+    .dcv1-gallery {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 132px;
+      gap: 10px;
+      padding-bottom: 6px;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+    }
+    .dcv1-gallery-item {
+      width: 132px;
+      height: 132px;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      cursor: zoom-in;
+      scroll-snap-align: start;
+    }
+    .dcv1-gallery-item:hover,
+    .dcv1-gallery-item:focus-visible { border-color: var(--dc-yellow); }
+    .dcv1-gallery-item img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .dcv1-lightbox {
+      position: absolute;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      outline: none;
+      background: rgba(4, 3, 7, .92);
+      cursor: zoom-out;
+    }
+    .dcv1-lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 10px;
+      object-fit: contain;
     }
     .dcv1-character-modal-actions {
       display: flex;
@@ -2835,7 +3134,7 @@ export function setup(ctx) {
         -webkit-overflow-scrolling: touch;
       }
       .dcv1-character-hero {
-        height: min(58vh, 520px);
+        height: min(40vh, 360px);
       }
       .dcv1-character-info {
         overflow: visible;
@@ -3051,6 +3350,11 @@ export function setup(ctx) {
     selected: null,
     selectedLoading: false,
     selectedError: "",
+    cardCache: new Map(),
+    cardErrors: new Map(),
+    cardTabChoice: new Map(),
+    cardLoading: new Set(),
+    verificationDeclined: false,
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4420,6 +4724,36 @@ export function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published],
     ].filter(([, value]) => String(value || "").trim());
+    const botUrl = botPageUrl(character, apiOrigin());
+    const profileDescription = renderRichText(
+      retargetRetrievedBy(character.description, botUrl),
+      { origin: apiOrigin() },
+    );
+    const loadedCard = state.cardCache.get(characterId) || null;
+    const tabs = loadedCard
+      ? cardTabs(loadedCard, {
+          origin: apiOrigin(),
+          fallbackDescription: character.description,
+          botUrl,
+        })
+      : [];
+    const chosenTab = state.cardTabChoice.get(characterId);
+    const activeTab = tabs.find((tab) => tab.id === chosenTab) || tabs[0] || null;
+    const description = activeTab || profileDescription;
+    const cardLoading = state.cardLoading.has(characterId);
+    const cardError = state.cardErrors.get(characterId) || "";
+    const cardBookEntries = lorebookEntryCount(findCharacterBook(loadedCard));
+    const lorebookInfo = cardBookEntries
+      ? { has: true, count: cardBookEntries }
+      : profileLorebookInfo(character);
+    // Images written into the text render inline; the strip is only for
+    // images the API lists separately, so nothing appears twice.
+    const inlineUrls = new Set(
+      [profileDescription, ...tabs].flatMap((item) => item.images.map((image) => image.url)),
+    );
+    const gallery = collectGalleryImages(character, apiOrigin()).filter(
+      (image) => image.url !== avatarUrl && !inlineUrls.has(image.url),
+    );
     modalHost.innerHTML = `
       <div class="dcv1-modal-layer" data-character-backdrop>
         <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
@@ -4451,11 +4785,50 @@ export function setup(ctx) {
                     )
                     .join("")}</div>`
                 : ""}
-              <div class="dcv1-character-description">${escapeHtml(character.description || "No description available.")}</div>
+              ${lorebookInfo.has
+                ? `<div class="dcv1-lore-chip" title="This character ships with a lorebook that is imported into Lumiverse automatically.">
+                    <span aria-hidden="true">📖</span>
+                    <strong>Lorebook</strong>${lorebookInfo.count ? `<span>${lorebookInfo.count} ${lorebookInfo.count === 1 ? "entry" : "entries"}</span>` : ""}
+                  </div>`
+                : ""}
+              <section class="dcv1-detail-section">
+                <h2 class="dcv1-detail-heading">About</h2>
+                ${tabs.length > 1
+                  ? `<div class="dcv1-card-tabs" role="tablist">${tabs
+                      .map(
+                        (tab) => `<button class="dcv1-card-tab" type="button" role="tab" aria-selected="${tab === activeTab}" data-card-id="${escapeAttribute(characterId)}" data-card-tab="${escapeAttribute(tab.id)}">${escapeHtml(tab.label)}${tab.count ? ` <span>${tab.count}</span>` : ""}</button>`,
+                      )
+                      .join("")}</div>`
+                  : ""}
+                ${description.html
+                  ? `<div class="dcv1-rich">${description.html}</div>`
+                  : `<p class="dcv1-rich-empty">No description available.</p>`}
+                ${loadedCard
+                  ? ""
+                  : `<div class="dcv1-card-load">
+                      <button class="dcv1-button" type="button" data-load-card="${escapeAttribute(characterId)}" ${cardLoading ? 'data-loading="true"' : ""} ${cardLoading || state.importId ? "disabled" : ""}>${cardLoading ? "Loading full card…" : cardError ? "Try again" : getVerificationLease() ? "Load full card" : "Verify & load full card"}</button>
+                      <span>${cardError ? escapeHtml(cardError) : cardLoading ? "Fetching the full card…" : getVerificationLease() ? "Greeting, scenario, example dialogue and images." : "One-time security check per session. After that, characters open in full view automatically."}</span>
+                    </div>`}
+              </section>
+              ${gallery.length
+                ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Images <span>${gallery.length}</span></h2>
+                    <div class="dcv1-gallery">${gallery
+                      .map(
+                        (image) => `<button class="dcv1-gallery-item" type="button" data-lightbox-src="${escapeAttribute(image.url)}" aria-label="${escapeAttribute(image.alt || "Open image")}">
+                          <img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                        </button>`,
+                      )
+                      .join("")}</div>
+                  </section>`
+                : ""}
               ${tags.length
-                ? `<div class="dcv1-profile-tags">${tags
-                    .map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`)
-                    .join("")}</div>`
+                ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Tags</h2>
+                    <div class="dcv1-profile-tags">${tags
+                      .map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`)
+                      .join("")}</div>
+                  </section>`
                 : ""}
               ${renderCharacterCommunity(characterId)}
               ${state.selectedLoading
@@ -4471,7 +4844,7 @@ export function setup(ctx) {
                   <button class="dcv1-button" type="button" data-chat-import="${escapeAttribute(lumiverseCharacterId)}" ${isOpeningChat ? 'data-loading="true" aria-busy="true" aria-label="Opening chat"' : ""} ${state.chatOpeningId ? "disabled" : ""}>${isOpeningChat ? "" : "Chat"}</button>
                 `
               : `
-                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId ? "disabled" : ""}>
+                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId || state.cardLoading.size ? "disabled" : ""}>
                     ${isImporting ? "Importing…" : "Import"}
                   </button>
                 `}
@@ -4662,7 +5035,7 @@ export function setup(ctx) {
               : escapeHtml(creator)}
             ${spottedBy ? ` · Spotted by @${escapeHtml(spottedBy)}` : ""}
           </div>
-          <p class="dcv1-fresh-description">${escapeHtml(character.description || "")}</p>
+          <p class="dcv1-fresh-description">${escapeHtml(snippetText(character.description, 320))}</p>
           ${tags.length
             ? `<div class="dcv1-fresh-tags">${tags
                 .map(
@@ -5468,12 +5841,23 @@ export function setup(ctx) {
     state.communityComposerOpen = false;
     state.communityDraft = "";
     renderProfile();
+    // Full view is the default: start loading the full card right from the tap.
+    // Without a valid security check this opens the verification window here,
+    // inside the click, so browsers allow the pop-up. Skipped only if the user
+    // already closed that window this session; the button is still there.
+    if (getVerificationLease() || !state.verificationDeclined) {
+      void loadCardPreview(normalizeId(id));
+    }
     void loadCharacterCommunity(id, { quiet: true });
     try {
       const profilePath = characterClientPath(summary || { id }, "profile");
       const payload = await datacatFetch(profilePath);
       if (selectedSerial !== state.selectedSerial) return;
       state.selected = { ...summary, ...(payload.character || {}), id };
+      console.debug(
+        "[Datacat] profile fields:",
+        Object.keys(payload.character || {}).sort().join(", "),
+      );
     } catch (error) {
       if (selectedSerial !== state.selectedSerial) return;
       state.selectedError = publicErrorMessage(error, "Could not load profile.");
@@ -5818,8 +6202,95 @@ export function setup(ctx) {
     }
   }
 
+  // Lumiverse auto-imports an embedded character_book when it creates the
+  // character. This call is an idempotent safety net: it returns the already
+  // linked world book, or creates and links one if the auto-import was skipped.
+  async function confirmLorebookImport(lumiverseCharacterId, expectedEntries) {
+    const plural = (count) => `${count} ${count === 1 ? "entry" : "entries"}`;
+    try {
+      const response = await fetch("/api/v1/world-books/import-character-book", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ characterId: lumiverseCharacterId }),
+      });
+      const result = await readJson(response);
+      const count = Number(result?.entry_count) || expectedEntries;
+      return `Lorebook imported and linked · ${plural(count)}`;
+    } catch (_) {
+      return `The card includes a lorebook (${plural(expectedEntries)}) but it could not be linked automatically. Import it from the character's World Books.`;
+    }
+  }
+
+  // Preview the full card (greeting, scenario, images in the description).
+  // The card is a protected transfer, so this only runs on an explicit click
+  // and goes through the same Datacat security check as an import.
+  async function loadCardPreview(id, { manual = false } = {}) {
+    if (!id || state.importId || state.cardLoading.has(id) || state.cardCache.has(id)) return;
+    if (manual) state.verificationDeclined = false;
+    const summary = findCharacterById(id) || state.selected;
+    const requestedName = summary?.name || "character";
+    const existingLease = getVerificationLease();
+    // One security-check window at a time.
+    if (!existingLease && state.cardLoading.size) return;
+    const popup = existingLease
+      ? null
+      : window.open(
+          verificationPopupWaitingUrl(),
+          "datacat-client-verification",
+          "popup=yes,width=560,height=720",
+        );
+    state.cardErrors.delete(id);
+    if (!existingLease && !popup) {
+      state.verificationDeclined = true;
+      state.cardErrors.set(
+        id,
+        publicErrorMessage(
+          verificationPopupBlockedError(),
+          "Allow pop-ups for Lumiverse to complete the Datacat security check.",
+        ),
+      );
+      render();
+      return;
+    }
+    state.cardLoading.add(id);
+    render();
+    try {
+      const transfer = await resolveImportTransferContract(summary || { id }, id);
+      const card = await withImportVerification(requestedName, popup, () =>
+        datacatFetch(transfer.cardPath),
+      );
+      if (!card || typeof card !== "object") {
+        throw new Error("Datacat returned an empty card.");
+      }
+      state.cardCache.set(id, card);
+    } catch (error) {
+      const cancelled =
+        error?.code === "VERIFICATION_CANCELLED" ||
+        error?.code === "VERIFICATION_WINDOW_CLOSED";
+      // Don't re-open the check on every tap after the user backed out.
+      if (cancelled) state.verificationDeclined = true;
+      state.cardErrors.set(
+        id,
+        cancelled
+          ? "Security check was not completed. Try again when you're ready."
+          : error?.retryAfter
+            ? `${publicErrorMessage(error, "Could not load the full card.")} Retry in ${error.retryAfter}s.`
+            : publicErrorMessage(error, "Could not load the full card."),
+      );
+    } finally {
+      closeVerificationPopup(popup);
+      if (state.importFeedback?.tone === "verification") setImportFeedback(null);
+      state.cardLoading.delete(id);
+      render();
+    }
+  }
+
   async function importCharacter(id) {
-    if (!id || state.importId) return;
+    if (!id || state.importId || state.cardLoading.size) return;
     const existingCharacterId = savedLumiverseId(id);
     if (existingCharacterId) {
       setImportFeedback({
@@ -5869,12 +6340,19 @@ export function setup(ctx) {
         summary || { id },
         id,
       );
-      const card = await withImportVerification(
-        requestedName,
-        verificationPopup,
-        () => datacatFetch(transfer.cardPath),
-      );
+      // Reuse a card already loaded for the preview; import mutates it.
+      const previewedCard = state.cardCache.get(id);
+      const card = previewedCard
+        ? structuredClone(previewedCard)
+        : await withImportVerification(
+            requestedName,
+            verificationPopup,
+            () => datacatFetch(transfer.cardPath),
+          );
       const importedAt = new Date().toISOString();
+      ensureBookInExtensions(card);
+      const lorebookEntries = lorebookEntryCount(findCharacterBook(card));
+      const profileListsLorebook = profileLorebookInfo(transfer.character).has;
       if (card && typeof card === "object") {
         card.extensions = {
           ...(card.extensions && typeof card.extensions === "object"
@@ -5937,10 +6415,21 @@ export function setup(ctx) {
         name,
         importedAt,
       });
+      let lorebookDetail = "";
+      if (lorebookEntries > 0) {
+        lorebookDetail = await confirmLorebookImport(
+          lumiverseCharacter.id,
+          lorebookEntries,
+        );
+      } else if (profileListsLorebook) {
+        lorebookDetail =
+          "Datacat lists a lorebook for this character, but it was not included in the card Datacat served.";
+      }
       setStatus("");
       setImportFeedback({
         tone: "success",
         title: `${name} imported to Lumiverse`,
+        detail: lorebookDetail,
         datacatCharacterId: id,
         lumiverseCharacterId: lumiverseCharacter.id,
       });
@@ -6221,6 +6710,47 @@ export function setup(ctx) {
   function handleSurfaceClick(event) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    const openLightbox = modalHost.querySelector(".dcv1-lightbox");
+    if (openLightbox) {
+      openLightbox.remove();
+      if (!target.closest("[data-lightbox-src]")) return;
+    }
+    const lightboxSource = target.closest("[data-lightbox-src]");
+    if (lightboxSource) {
+      const url = lightboxSource.getAttribute("data-lightbox-src") || "";
+      if (/^https?:\/\//i.test(url)) {
+        event.preventDefault();
+        const box = document.createElement("div");
+        box.className = "dcv1-lightbox";
+        box.tabIndex = -1;
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-label", "Image preview");
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.referrerPolicy = "no-referrer";
+        box.append(img);
+        modalHost.append(box);
+        box.focus({ preventScroll: true });
+      }
+      return;
+    }
+    const loadCard = target.closest("[data-load-card]");
+    if (loadCard) {
+      void loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")), {
+        manual: true,
+      });
+      return;
+    }
+    const cardTabButton = target.closest("[data-card-tab]");
+    if (cardTabButton) {
+      state.cardTabChoice.set(
+        normalizeId(cardTabButton.getAttribute("data-card-id")),
+        cardTabButton.getAttribute("data-card-tab"),
+      );
+      renderCharacterModal();
+      return;
+    }
     if (target.closest("[data-sort-toggle]")) {
       if (!state.catalogSortLoading) setCatalogSortOpen(catalogSortMenu.hidden);
       return;
@@ -6578,6 +7108,14 @@ export function setup(ctx) {
   }
 
   function handleSurfaceKeydown(event) {
+    if (event.key === "Escape") {
+      const lightbox = modalHost.querySelector(".dcv1-lightbox");
+      if (lightbox) {
+        event.preventDefault();
+        lightbox.remove();
+        return;
+      }
+    }
     if (
       event.key === "Escape" &&
       (state.selected || state.selectedLoading || state.selectedError)
@@ -6614,6 +7152,22 @@ export function setup(ctx) {
     void openProfile(normalizeId(card.getAttribute("data-card")));
   }
 
+  // Badges and icons keep their natural size; every other image fills the width.
+  modalHost.addEventListener(
+    "load",
+    (event) => {
+      const img = event.target;
+      if (
+        img instanceof HTMLImageElement &&
+        img.classList.contains("dcv1-rich-img") &&
+        img.naturalWidth > 0 &&
+        img.naturalWidth < 180
+      ) {
+        img.dataset.small = "true";
+      }
+    },
+    true,
+  );
   root.addEventListener("click", handleSurfaceClick);
   modalHost.addEventListener("click", handleSurfaceClick);
   root.addEventListener("keydown", handleSurfaceKeydown);

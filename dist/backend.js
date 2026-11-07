@@ -352,48 +352,48 @@ for (const event of [
 }
 api.onFrontendMessage(async (payload, userId) => {
   if (payload?.type === "datacat_secure_state_request") {
-    const requestId2 = String(payload.requestId || "");
+    const requestId = String(payload.requestId || "");
     try {
       api.sendToFrontend({
         type: "datacat_secure_state_result",
-        requestId: requestId2,
+        requestId,
         state: await datacatSecureState(userId)
       }, userId);
     } catch (error) {
       api.sendToFrontend({
         type: "datacat_secure_state_error",
-        requestId: requestId2,
+        requestId,
         error: "Could not read Datacat connection state."
       }, userId);
     }
     return;
   }
   if (payload?.type === "datacat_clear_verification_request") {
-    const requestId2 = String(payload.requestId || "");
+    const requestId = String(payload.requestId || "");
     try {
       await api.enclave.delete(VERIFICATION_LEASE_KEY, userId);
-      api.sendToFrontend({ type: "datacat_clear_verification_result", requestId: requestId2 }, userId);
+      api.sendToFrontend({ type: "datacat_clear_verification_result", requestId }, userId);
     } catch (error) {
       api.sendToFrontend({
         type: "datacat_clear_verification_error",
-        requestId: requestId2,
+        requestId,
         error: "Could not clear the Datacat security check."
       }, userId);
     }
     return;
   }
   if (payload?.type === "datacat_api_request") {
-    const requestId2 = String(payload.requestId || "");
+    const requestId = String(payload.requestId || "");
     try {
       api.sendToFrontend({
         type: "datacat_api_result",
-        requestId: requestId2,
+        requestId,
         response: await runDatacatRequest(payload.request, userId)
       }, userId);
     } catch (error) {
       api.sendToFrontend({
         type: "datacat_api_error",
-        requestId: requestId2,
+        requestId,
         error: "Datacat could not complete that request."
       }, userId);
     }
@@ -413,19 +413,19 @@ api.onFrontendMessage(async (payload, userId) => {
     return;
   }
   if (payload?.type === "datacat_character_link_request") {
-    const requestId2 = String(payload.requestId || "");
+    const requestId = String(payload.requestId || "");
     const lumiverseCharacterId = normalizeId(payload.lumiverseCharacterId);
     try {
       const character = lumiverseCharacterId ? await api.characters.get(lumiverseCharacterId, userId) : null;
       api.sendToFrontend({
         type: "datacat_character_link_result",
-        requestId: requestId2,
+        requestId,
         link: datacatLink(character)
       }, userId);
     } catch (error) {
       api.sendToFrontend({
         type: "datacat_character_link_error",
-        requestId: requestId2,
+        requestId,
         error: "Could not inspect the active Lumiverse character."
       }, userId);
     }
@@ -452,7 +452,7 @@ api.onFrontendMessage(async (payload, userId) => {
   }
 });
 export {
-  scanLinks,
+  datacatLink,
   getLinks,
-  datacatLink
+  scanLinks
 };
