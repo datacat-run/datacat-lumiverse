@@ -56,41 +56,548 @@ function safeUrl(value, origin = "https://datacat.run") {
     return "";
   }
 }
-var LAYOUT_TAGS = "div|span|p|center|font|section|article|header|footer|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|details|summary|small|big|u|s|strike|del|ins|sub|sup|mark|style|script|iframe|video|audio|source|svg|figure|figcaption|h[1-6]|pre|code|blockquote|label|button|form|input";
-function normalizeHtml(source) {
-  let text = String(source ?? "").replace(/\r\n?/g, `
-`);
-  text = text.replace(/<!--[\s\S]*?-->/g, "");
-  text = text.replace(/<(script|style|iframe|svg|video|audio)\b[\s\S]*?<\/\1>/gi, "");
-  text = text.replace(/<img\b[^>]*>/gi, (tag) => {
-    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
-    if (!src)
-      return "";
-    const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
-    return `
-![${(alt?.[1] ?? alt?.[2] ?? "").replace(/[\[\]]/g, "")}](${(src[1] ?? src[2] ?? src[3]).trim()})
-`;
+var TAG_MAP = {
+  div: "div",
+  p: "div",
+  section: "div",
+  article: "div",
+  header: "div",
+  footer: "div",
+  main: "div",
+  nav: "div",
+  aside: "div",
+  figure: "div",
+  figcaption: "div",
+  center: "div",
+  address: "div",
+  ul: "ul",
+  ol: "ol",
+  li: "li",
+  table: "table",
+  thead: "thead",
+  tbody: "tbody",
+  tfoot: "tfoot",
+  tr: "tr",
+  td: "td",
+  th: "th",
+  caption: "caption",
+  details: "details",
+  summary: "summary",
+  blockquote: "blockquote",
+  span: "span",
+  font: "span",
+  big: "span",
+  abbr: "span",
+  label: "span",
+  q: "span",
+  b: "strong",
+  strong: "strong",
+  i: "em",
+  em: "em",
+  cite: "em",
+  u: "u",
+  ins: "u",
+  s: "s",
+  strike: "s",
+  del: "s",
+  mark: "mark",
+  small: "small",
+  sub: "sub",
+  sup: "sup",
+  a: "a",
+  code: "code",
+  kbd: "code",
+  tt: "code"
+};
+var BLOCK_OUT = new Set([
+  "div",
+  "ul",
+  "ol",
+  "li",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "td",
+  "th",
+  "caption",
+  "details",
+  "summary",
+  "blockquote"
+]);
+var AUTO_CLOSE = { li: ["li"], p: ["p"], td: ["td", "th"], th: ["td", "th"], tr: ["tr"] };
+var DROP_BLOCKS = /<(script|style|iframe|object|embed|svg|video|audio|noscript|template|textarea|select|form|button|canvas|math|head|title)\b[\s\S]*?<\/\1\s*>/gi;
+var DROP_VOID = /<(?:link|meta|base|input|source|track|param)\b[^>]*>/gi;
+var TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+var TOKEN_RE = /(\d+)/g;
+var TOKEN_ONLY = /^(?:\d+\s*)+$/;
+var KNOWN_TAG_RE = new RegExp(`</?(?:${[...Object.keys(TAG_MAP), "img", "br", "hr", "pre", "h[1-6]"].join("|")})\\b(?:"[^"]*"|'[^']*'|[^'">])*>`, "gi");
+var NAMED_ENTITIES = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  times: "×",
+  middot: "·",
+  bull: "•",
+  hearts: "♥"
+};
+function decodeEntities(text) {
+  return String(text ?? "").replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]{2,8}));/gi, (match, dec, hex, name) => {
+    if (name)
+      return Object.hasOwn(NAMED_ENTITIES, name.toLowerCase()) ? NAMED_ENTITIES[name.toLowerCase()] : match;
+    const cp = dec ? Number(dec) : parseInt(hex, 16);
+    const bad = !cp || cp > 1114111 || cp < 32 && cp !== 10 && cp !== 9 || cp >= 55296 && cp <= 57343 || cp >= 57344 && cp <= 63743;
+    return bad ? match : String.fromCodePoint(cp);
   });
-  text = text.replace(/<br\s*\/?>/gi, `
+}
+var NAMED_COLORS = {
+  white: "#ffffff",
+  black: "#000000",
+  red: "#ff0000",
+  green: "#008000",
+  blue: "#0000ff",
+  yellow: "#ffff00",
+  orange: "#ffa500",
+  purple: "#800080",
+  pink: "#ffc0cb",
+  gray: "#808080",
+  grey: "#808080",
+  silver: "#c0c0c0",
+  gold: "#ffd700",
+  cyan: "#00ffff",
+  aqua: "#00ffff",
+  magenta: "#ff00ff",
+  fuchsia: "#ff00ff",
+  violet: "#ee82ee",
+  indigo: "#4b0082",
+  crimson: "#dc143c",
+  coral: "#ff7f50",
+  salmon: "#fa8072",
+  lavender: "#e6e6fa",
+  lime: "#00ff00",
+  navy: "#000080",
+  maroon: "#800000",
+  teal: "#008080",
+  turquoise: "#40e0d0",
+  tomato: "#ff6347",
+  orchid: "#da70d6",
+  plum: "#dda0dd",
+  hotpink: "#ff69b4",
+  deeppink: "#ff1493",
+  skyblue: "#87ceeb",
+  lightblue: "#add8e6",
+  lightgreen: "#90ee90",
+  darkred: "#8b0000",
+  brown: "#a52a2a",
+  beige: "#f5f5dc",
+  ivory: "#fffff0",
+  tan: "#d2b48c",
+  firebrick: "#b22222",
+  goldenrod: "#daa520",
+  orangered: "#ff4500",
+  royalblue: "#4169e1",
+  steelblue: "#4682b4",
+  rebeccapurple: "#663399"
+};
+function parseColor(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "transparent")
+    return { r: 0, g: 0, b: 0, a: 0 };
+  const hex = (Object.hasOwn(NAMED_COLORS, v) ? NAMED_COLORS[v] : v).match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/);
+  if (hex) {
+    let h = hex[1];
+    if (h.length <= 4)
+      h = [...h].map((c) => c + c).join("");
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16),
+      a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1
+    };
+  }
+  const fn = v.match(/^rgba?\(\s*(\d{1,3}(?:\.\d+)?%?)[\s,]+(\d{1,3}(?:\.\d+)?%?)[\s,]+(\d{1,3}(?:\.\d+)?%?)(?:[\s,/]+(\d*\.?\d+%?))?\s*\)$/);
+  if (!fn)
+    return null;
+  const channel = (s) => Math.min(255, Math.round(s.endsWith("%") ? parseFloat(s) / 100 * 255 : parseFloat(s)));
+  const alpha = fn[4] === undefined ? 1 : fn[4].endsWith("%") ? parseFloat(fn[4]) / 100 : parseFloat(fn[4]);
+  return { r: channel(fn[1]), g: channel(fn[2]), b: channel(fn[3]), a: Math.max(0, Math.min(1, alpha)) };
+}
+function luminance({ r, g, b }) {
+  const lin = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+var contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+var PANEL_LUM = luminance({ r: 23, g: 16, b: 31 });
+var cssColor = (c) => `rgba(${c.r},${c.g},${c.b},${Math.round(c.a * 100) / 100})`;
+var ENUMS = {
+  "text-align": ["left", "right", "center", "justify", "start", "end"],
+  "font-style": ["normal", "italic"],
+  "text-transform": ["none", "uppercase", "lowercase", "capitalize"],
+  display: ["block", "inline", "inline-block", "flex", "inline-flex"],
+  "flex-direction": ["row", "column", "row-reverse", "column-reverse"],
+  "flex-wrap": ["nowrap", "wrap"],
+  "justify-content": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"],
+  "align-items": ["flex-start", "flex-end", "center", "stretch", "baseline"],
+  "vertical-align": ["top", "middle", "bottom", "baseline"],
+  "font-family": ["monospace", "serif", "sans-serif"],
+  "white-space": ["normal", "pre-wrap", "nowrap"]
+};
+var FONT_KEYWORDS = {
+  "x-small": "0.75em",
+  small: "0.875em",
+  medium: "1em",
+  large: "1.2em",
+  "x-large": "1.5em",
+  "xx-large": "2em"
+};
+var FONT_SIZE_ATTR = { 1: "0.75em", 2: "0.9em", 3: "1em", 4: "1.15em", 5: "1.4em", 6: "1.8em", 7: "2.4em" };
+function length(value, { px = 1600, em = 12, pct = 100, auto = false } = {}) {
+  const v = String(value).trim().toLowerCase();
+  if (v === "auto")
+    return auto ? "auto" : "";
+  const m = /^(\d+(?:\.\d+)?)(px|em|rem|%)?$/.exec(v);
+  if (!m)
+    return "";
+  const n = parseFloat(m[1]);
+  const unit = m[2] || (n === 0 ? "px" : "");
+  if (!unit)
+    return "";
+  const cap = unit === "px" ? px : unit === "%" ? pct : em;
+  return n <= cap ? `${n}${unit}` : "";
+}
+var lengths = (value, opts, max = 4) => {
+  const parts = String(value).trim().split(/\s+/);
+  if (parts.length > max)
+    return "";
+  const out = parts.map((p) => length(p, opts));
+  return out.every(Boolean) ? out.join(" ") : "";
+};
+function cleanProperty(prop, value) {
+  const v = value.toLowerCase();
+  if (Object.hasOwn(ENUMS, prop))
+    return ENUMS[prop].includes(v) ? [[prop, v]] : null;
+  switch (prop) {
+    case "color":
+    case "background-color":
+    case "background": {
+      const c = parseColor(v);
+      return c ? [[prop === "color" ? "color" : "background-color", cssColor(c)]] : null;
+    }
+    case "font-weight":
+      return /^(normal|bold|bolder|lighter|[1-9]00)$/.test(v) ? [[prop, v]] : null;
+    case "text-decoration":
+    case "text-decoration-line":
+      return /^(none|underline|line-through|overline)( (underline|line-through|overline))?$/.test(v) ? [["text-decoration", v]] : null;
+    case "font-size": {
+      if (Object.hasOwn(FONT_KEYWORDS, v))
+        return [[prop, FONT_KEYWORDS[v]]];
+      const m = /^(\d+(?:\.\d+)?)(px|em|rem|%)$/.exec(v);
+      if (!m)
+        return null;
+      const n = parseFloat(m[1]);
+      const ok = m[2] === "px" ? n >= 8 && n <= 48 : m[2] === "%" ? n >= 50 && n <= 300 : n >= 0.5 && n <= 3;
+      return ok ? [[prop, v]] : null;
+    }
+    case "letter-spacing": {
+      if (v === "normal")
+        return [[prop, v]];
+      const out = length(v, { px: 10, em: 1, pct: 0 });
+      return out ? [[prop, out]] : null;
+    }
+    case "line-height": {
+      if (/^\d(\.\d+)?$/.test(v) && parseFloat(v) >= 1 && parseFloat(v) <= 3)
+        return [[prop, v]];
+      const out = length(v, { px: 80, em: 3, pct: 300 });
+      return out ? [[prop, out]] : null;
+    }
+    case "width":
+    case "max-width":
+    case "min-width": {
+      const out = length(v, { px: 2000, em: 100, pct: 100, auto: prop === "width" });
+      return out ? [[prop, out]] : null;
+    }
+    case "height": {
+      const out = length(v, { px: 2000, em: 100, pct: 100, auto: true });
+      return out ? [[prop, out]] : null;
+    }
+    case "margin":
+    case "padding": {
+      const out = lengths(v, { px: 200, em: 10, pct: 50, auto: prop === "margin" });
+      return out ? [[prop, out]] : null;
+    }
+    case "margin-top":
+    case "margin-bottom":
+    case "margin-left":
+    case "margin-right":
+    case "padding-top":
+    case "padding-bottom":
+    case "padding-left":
+    case "padding-right": {
+      const out = length(v, { px: 200, em: 10, pct: 50, auto: prop.startsWith("margin") });
+      return out ? [[prop, out]] : null;
+    }
+    case "gap":
+    case "row-gap":
+    case "column-gap": {
+      const out = lengths(v, { px: 100, em: 6, pct: 0 }, 2);
+      return out ? [[prop, out]] : null;
+    }
+    case "border-radius": {
+      const out = lengths(v, { px: 999, em: 20, pct: 50 });
+      return out ? [[prop, out]] : null;
+    }
+    case "border":
+    case "border-top":
+    case "border-bottom":
+    case "border-left":
+    case "border-right": {
+      const parts = v.replace(/\s*,\s*/g, ",").split(/\s+/);
+      let width = "1px", style = "solid", color = "rgba(255,255,255,0.2)";
+      for (const part of parts) {
+        if (/^(solid|dashed|dotted|double|none)$/.test(part))
+          style = part;
+        else if (/^\d(\.\d+)?(px)?$/.test(part) && parseFloat(part) <= 8)
+          width = `${parseFloat(part)}px`;
+        else {
+          const c = parseColor(part);
+          if (!c)
+            return null;
+          color = cssColor(c);
+        }
+      }
+      return [[prop, style === "none" ? "none" : `${width} ${style} ${color}`]];
+    }
+    case "opacity":
+      return /^(0|1|0?\.\d+)$/.test(v) ? [[prop, v]] : null;
+    case "flex":
+      return /^(\d{1,2}|auto|none)( \d{1,2})?( (auto|0|\d{1,4}px|\d{1,3}%))?$/.test(v) ? [[prop, v]] : null;
+    default:
+      return null;
+  }
+}
+function declarationsFrom(styleText) {
+  const decls = new Map;
+  const clean = String(styleText ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const part of clean.split(";")) {
+    const idx = part.indexOf(":");
+    if (idx < 1)
+      continue;
+    const prop = part.slice(0, idx).trim().toLowerCase();
+    const value = part.slice(idx + 1).trim().replace(/\s*!important\s*$/i, "").replace(/\s+/g, " ");
+    if (!value || /[\\<>{}@&]|url\(|expression|javascript|var\(|attr\(|env\(/i.test(value))
+      continue;
+    for (const [k, val] of cleanProperty(prop, value) || [])
+      decls.set(k, val);
+  }
+  return decls;
+}
+function styleAttribute(decls) {
+  const bg = decls.has("background-color") ? parseColor(decls.get("background-color")) : null;
+  const solidBg = bg && bg.a >= 0.5 ? bg : null;
+  const baseLum = solidBg ? luminance(solidBg) : PANEL_LUM;
+  if (decls.has("color")) {
+    const text = parseColor(decls.get("color"));
+    if (!text || text.a < 0.4 || contrast(luminance(text), baseLum) < 3)
+      decls.delete("color");
+  }
+  if (solidBg && baseLum > 0.35 && !decls.has("color"))
+    decls.set("color", "#17101f");
+  const css = [...decls].map(([k, v]) => `${k}:${v}`).join(";");
+  return css ? ` style="${esc(css)}"` : "";
+}
+function parseAttrs(raw) {
+  const attrs = Object.create(null);
+  const re = /([a-zA-Z_:][-\w:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+)))?/g;
+  let m;
+  while (m = re.exec(raw)) {
+    const name = m[1].toLowerCase();
+    if (!(name in attrs))
+      attrs[name] = decodeEntities(m[2] ?? m[3] ?? m[4] ?? "");
+  }
+  return attrs;
+}
+function applyLegacyAttributes(src, attrs, decls) {
+  const set = (prop, value) => {
+    if (decls.has(prop))
+      return;
+    for (const [k, v] of cleanProperty(prop, String(value).trim()) || [])
+      decls.set(k, v);
+  };
+  if (attrs.align)
+    set("text-align", attrs.align.toLowerCase());
+  if (attrs.bgcolor)
+    set("background-color", attrs.bgcolor);
+  if (src === "center")
+    set("text-align", "center");
+  if (src === "big")
+    set("font-size", "1.25em");
+  if (src === "font") {
+    if (attrs.color)
+      set("color", attrs.color);
+    if (/^[1-7]$/.test(attrs.size || ""))
+      decls.has("font-size") || decls.set("font-size", FONT_SIZE_ATTR[attrs.size]);
+  }
+  if (["table", "td", "th"].includes(src) && attrs.width) {
+    set("width", /^\d+$/.test(attrs.width) ? `${attrs.width}px` : attrs.width);
+  }
+}
+function openTag(src, attrs, ctx) {
+  let out = TAG_MAP[src];
+  const decls = declarationsFrom(attrs.style);
+  applyLegacyAttributes(src, attrs, decls);
+  let extra = "";
+  if (out === "a") {
+    const href = safeUrl(attrs.href, ctx.origin);
+    if (href)
+      extra = ` href="${esc(href)}" target="_blank" rel="noopener noreferrer nofollow"`;
+    else
+      out = "span";
+  }
+  if (out === "td" || out === "th") {
+    for (const key of ["colspan", "rowspan"]) {
+      if (/^\d{1,2}$/.test(attrs[key] || "") && Number(attrs[key]) > 0)
+        extra += ` ${key}="${attrs[key]}"`;
+    }
+  }
+  if (out === "details" && "open" in attrs)
+    extra += " open";
+  if (out === "ol" && /^\d{1,4}$/.test(attrs.start || ""))
+    extra += ` start="${attrs.start}"`;
+  const html = `<${out}${extra}${styleAttribute(decls)}>`;
+  return { out, html: src === "table" ? `<div class="dcv1-rich-table">${html}` : html };
+}
+var closeTag = (entry) => `</${entry.out}>${entry.src === "table" ? "</div>" : ""}`;
+function imageTag(attrs, ctx) {
+  const url = safeUrl(attrs.src, ctx.origin);
+  if (!url)
+    return "";
+  const alt = String(attrs.alt || "").slice(0, 300);
+  ctx.images.push({ url, alt });
+  const decls = declarationsFrom(attrs.style);
+  for (const drop of ["height", "display", "color", "background-color"])
+    decls.delete(drop);
+  if (!decls.has("width") && attrs.width) {
+    const w = /^\d+$/.test(attrs.width) ? `${attrs.width}px` : attrs.width;
+    for (const [k, v] of cleanProperty("width", w) || [])
+      decls.set(k, v);
+  }
+  const w = decls.get("width") || "";
+  const m = /^(\d+(?:\.\d+)?)(%|px)$/.exec(w);
+  const partial = m && (m[2] === "px" || Number(m[1]) < 100);
+  if (partial && m[2] === "%")
+    decls.set("width", `calc(${Number(m[1])}% - 12px)`);
+  return `<img class="dcv1-rich-img"${partial ? ' data-sized="true"' : ""} src="${esc(url)}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-lightbox-src="${esc(url)}"${styleAttribute(decls)}>`;
+}
+function createTagger(ctx) {
+  const stack = [];
+  const store = (html) => `${ctx.tags.push(html) - 1}`;
+  const closeAbove = (index) => {
+    const popped = stack.splice(index).reverse();
+    return { html: popped.map(closeTag).join(""), block: popped.some((e) => BLOCK_OUT.has(e.out)) };
+  };
+  const wrap = (html, block) => block ? `
+${store(html)}
+` : store(html);
+  return {
+    run(text) {
+      return text.replace(TAG_RE, (match, slash, rawName, rawAttrs) => {
+        const name = rawName.toLowerCase();
+        if (name === "img") {
+          if (slash)
+            return "";
+          const html = imageTag(parseAttrs(rawAttrs), ctx);
+          return html ? store(html) : "";
+        }
+        if (!Object.hasOwn(TAG_MAP, name))
+          return match;
+        if (slash) {
+          const index = stack.map((e) => e.src).lastIndexOf(name);
+          if (index < 0)
+            return "";
+          const { html, block } = closeAbove(index);
+          return wrap(html, block);
+        }
+        let prefix = "";
+        let block = false;
+        const top = stack[stack.length - 1];
+        if (top && AUTO_CLOSE[name]?.includes(top.src)) {
+          const closed = closeAbove(stack.length - 1);
+          prefix = closed.html;
+          block = closed.block;
+        }
+        const { out, html } = openTag(name, parseAttrs(rawAttrs), ctx);
+        stack.push({ src: name, out });
+        return wrap(prefix + html, block || BLOCK_OUT.has(out));
+      });
+    },
+    finish() {
+      if (!stack.length)
+        return "";
+      const { html } = closeAbove(0);
+      return `
+${store(html)}
+`;
+    }
+  };
+}
+function prepareSource(source, ctx) {
+  let text = String(source ?? "").replace(/\r\n?/g, `
+`).replace(/[\u0000-]/g, "");
+  text = text.replace(/<!--[\s\S]*?-->/g, "").replace(DROP_BLOCKS, "").replace(DROP_VOID, "");
+  text = text.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre\s*>/gi, (_, inner) => `
+
+\`\`\`
+${decodeEntities(inner.replace(/<\/?[a-zA-Z][^>]*>/g, "")).replace(/```/g, "'''")}
+\`\`\`
+
 `);
-  text = text.replace(/<hr\s*\/?>/gi, `
+  text = text.replace(/<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1\s*>/gi, (_, level, rawAttrs, inner) => {
+    const line = inner.replace(/\s*\n\s*/g, " ").trim();
+    if (!line)
+      return `
+
+`;
+    const md = `
+
+${"#".repeat(Number(level))} ${line}
+
+`;
+    return /\b(?:align|style)\s*=/i.test(rawAttrs) ? `
+<div${rawAttrs}>${md}</div>
+` : md;
+  });
+  text = text.replace(/<br\b[^>]*>/gi, `
+`).replace(/<hr\b[^>]*>/gi, `
 
 ---
 
 `);
-  text = text.replace(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/gi, (_, a, b, inner) => `[${inner.replace(/<[^>]+>/g, "").trim() || a || b}](${a ?? b})`);
-  text = text.replace(/<(b|strong)\b[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
-  text = text.replace(/<(i|em)\b[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
-  text = text.replace(/<\/(p|div|section|article|header|footer|tr|li|h[1-6]|figure|details)>/gi, `
-
-`);
-  text = text.replace(new RegExp(`</?(?:${LAYOUT_TAGS})\\b[^>]*>`, "gi"), "");
-  return text;
+  const tagger = createTagger(ctx);
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  const joined = parts.map((part, i) => i % 2 ? part : tagger.run(part)).join("") + tagger.finish();
+  return joined;
+}
+function resolveTokens(html, ctx) {
+  return html.replace(TOKEN_RE, (_, i) => ctx.tags[Number(i)] ?? "");
 }
 function renderInline(text, ctx) {
   const stash = [];
   const hold = (html) => `\x00${stash.push(html) - 1}\x00`;
-  let out = esc(text);
+  let out = esc(decodeEntities(text).replace(/[-]/g, ""));
   out = out.replace(/`([^`\n]+)`/g, (_, code) => hold(`<code>${code}</code>`));
   out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (_, alt, href) => {
     const url = safeUrl(href, ctx.origin);
@@ -103,7 +610,7 @@ function renderInline(text, ctx) {
     const url = safeUrl(href, ctx.origin);
     return url ? hold(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`) : label;
   });
-  out = out.replace(/(^|[\s(]|&quot;|&#39;)(https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<)])+)/g, (_, lead, matched) => {
+  out = out.replace(/(^|[\s(]|&quot;|&#39;)(https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<)])+)/g, (_, lead, matched) => {
     const href = matched.replace(/[.,;:!?]+$/, "");
     const tail = matched.slice(href.length);
     const url = safeUrl(href, ctx.origin);
@@ -114,11 +621,11 @@ function renderInline(text, ctx) {
   while (/\u0000\d+\u0000/.test(out) && guard++ < 5) {
     out = out.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[Number(i)] ?? "");
   }
-  return out;
+  return resolveTokens(out, ctx);
 }
 function renderRichText(source, { origin = "https://datacat.run" } = {}) {
-  const ctx = { origin, images: [] };
-  const lines = normalizeHtml(source).split(`
+  const ctx = { origin, images: [], tags: [] };
+  const lines = prepareSource(source, ctx).split(`
 `);
   const html = [];
   let paragraph = [];
@@ -169,6 +676,11 @@ function renderRichText(source, { origin = "https://datacat.run" } = {}) {
       flushAll();
       continue;
     }
+    if (TOKEN_ONLY.test(line.trim())) {
+      flushAll();
+      html.push(resolveTokens(line.trim(), ctx));
+      continue;
+    }
     const heading = /^(#{1,6})\s+(.*?)\s*#*$/.exec(line);
     if (heading) {
       flushAll();
@@ -211,13 +723,34 @@ function renderRichText(source, { origin = "https://datacat.run" } = {}) {
   const seen = new Set;
   const images = ctx.images.filter((image) => !seen.has(image.url) && seen.add(image.url));
   return {
-    html: html.join(""),
+    html: resolveTokens(html.join(""), ctx),
     images,
-    plain: normalizeHtml(source).replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
+    plain: decodeEntities(String(source ?? "").replace(KNOWN_TAG_RE, " ")).replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
   };
 }
+function retargetRetrievedBy(text, url) {
+  if (!url || typeof text !== "string")
+    return text;
+  return text.replace(/(\[retrieved by\s+)https?:\/\/(?:www\.)?datacat\.run\/?(?=\s+on\b)/i, (_, lead) => `${lead}${url}`);
+}
+function botPageUrl(character, origin = "https://datacat.run") {
+  const id = String(character?.id || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
+    return "";
+  for (const key of ["url", "webUrl", "pageUrl", "profileUrl", "permalink"]) {
+    const raw = character?.[key];
+    if (typeof raw !== "string")
+      continue;
+    try {
+      const url = new URL(raw, origin);
+      if (url.origin === origin && url.pathname.toLowerCase().includes(id))
+        return url.href;
+    } catch (_) {}
+  }
+  return `${origin}/characters/${id}`;
+}
 function snippetText(source, maxLength = 400) {
-  const text = normalizeHtml(source).replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^\s*>\s?/gm, "").replace(/(\*\*|__|~~|`)/g, "").replace(/(^|\s)[*_]+(?=\S)|(?<=\S)[*_]+(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
+  const text = decodeEntities(String(source ?? "").replace(/<!--[\s\S]*?-->/g, "").replace(DROP_BLOCKS, " ").replace(/<br\b[^>]*>/gi, " ").replace(KNOWN_TAG_RE, " ")).replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^\s*>\s?/gm, "").replace(/(\*\*|__|~~|`)/g, "").replace(/(^|\s)[*_]+(?=\S)|(?<=\S)[*_]+(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
 }
 function collectGalleryImages(character, origin = "https://datacat.run") {
@@ -305,8 +838,9 @@ function cardField(card, keys) {
   }
   return "";
 }
-function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = "" } = {}) {
+function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = "", botUrl = "" } = {}) {
   const tabs = [];
+  const fix = (text) => retargetRetrievedBy(text, botUrl);
   const add = (id, label, source, count) => {
     const rendered = renderRichText(source, { origin });
     if (!rendered.html)
@@ -318,12 +852,12 @@ function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = 
     if (!source && id === "description")
       source = fallbackDescription;
     if (source)
-      add(id, label, source);
+      add(id, label, fix(source));
   }
   const alts = [card?.data?.alternate_greetings, card?.alternate_greetings, card?.alternateGreetings].find((list) => Array.isArray(list));
   const greetings = (alts || []).filter((text) => typeof text === "string" && text.trim());
   if (greetings.length) {
-    const rendered = greetings.map((text) => renderRichText(text, { origin }));
+    const rendered = greetings.map((text) => renderRichText(fix(text), { origin }));
     const html = rendered.map((item, index) => `<div class="dcv1-alt-greeting"><h3>Greeting ${index + 2}</h3>${item.html}</div>`).join("");
     const seen = new Set;
     const images = rendered.flatMap((item) => item.images).filter((image) => !seen.has(image.url) && seen.add(image.url));
@@ -2807,67 +3341,148 @@ function setup(ctx) {
       font-size: 11px;
     }
     .dcv1-rich {
-      max-width: 72ch;
-      color: #e8dfec;
-      font-size: 14px;
-      line-height: 1.72;
+      max-width: 88ch;
+      color: #ece4f1;
+      font-size: 15px;
+      line-height: 1.75;
       overflow-wrap: anywhere;
+      text-wrap: pretty;
     }
     .dcv1-rich > :first-child { margin-top: 0; }
     .dcv1-rich > :last-child { margin-bottom: 0; }
     .dcv1-rich p { margin: 0 0 1em; }
+    .dcv1-rich li > p,
+    .dcv1-rich td > p,
+    .dcv1-rich th > p,
+    .dcv1-rich summary > p { margin: 0; }
+    .dcv1-rich strong { color: #fff; font-weight: 700; }
     .dcv1-rich h2,
     .dcv1-rich h3,
     .dcv1-rich h4,
     .dcv1-rich h5,
     .dcv1-rich h6 {
-      margin: 1.5em 0 .55em;
-      color: var(--dc-text);
-      line-height: 1.3;
+      margin: 1.7em 0 .6em;
+      color: inherit;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -.01em;
     }
-    .dcv1-rich h2 { font-size: 18px; }
-    .dcv1-rich h3 { font-size: 16px; }
-    .dcv1-rich h4,
+    .dcv1-rich h2 {
+      padding-bottom: .3em;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      font-size: 1.55em;
+    }
+    .dcv1-rich h3 { font-size: 1.3em; }
+    .dcv1-rich h4 { font-size: 1.12em; }
     .dcv1-rich h5,
-    .dcv1-rich h6 { font-size: 14px; }
+    .dcv1-rich h6 {
+      font-size: .8em;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
     .dcv1-rich ul,
-    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.4em; }
+    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.5em; }
     .dcv1-rich li { margin: .3em 0; }
+    .dcv1-rich li::marker { color: var(--dc-yellow); }
     .dcv1-rich blockquote {
       margin: 0 0 1em;
-      padding: 6px 0 6px 14px;
-      color: #cbbfd1;
-      border-left: 3px solid rgba(246, 200, 76, .45);
+      padding: 10px 16px;
+      color: #d9cfe0;
+      border-left: 3px solid rgba(246, 200, 76, .55);
+      border-radius: 0 10px 10px 0;
+      background: rgba(255,255,255,.04);
     }
     .dcv1-rich hr {
-      margin: 1.4em 0;
+      height: 1px;
+      margin: 1.8em 0;
       border: 0;
-      border-top: 1px solid rgba(255,255,255,.12);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
     }
     .dcv1-rich code {
-      padding: 1px 5px;
+      padding: 1px 6px;
       border-radius: 5px;
-      background: rgba(255,255,255,.08);
-      font-size: .9em;
+      background: rgba(255,255,255,.09);
+      font-size: .88em;
     }
     .dcv1-rich pre {
       margin: 0 0 1em;
-      padding: 10px 12px;
+      padding: 12px 14px;
       overflow: auto;
       border-radius: 10px;
-      background: rgba(0,0,0,.35);
+      background: rgba(0,0,0,.38);
     }
     .dcv1-rich pre code { padding: 0; background: none; }
-    .dcv1-rich a { color: var(--dc-yellow); }
-    .dcv1-rich-img {
+    .dcv1-rich a {
+      color: var(--dc-yellow);
+      text-decoration-color: rgba(246, 200, 76, .4);
+      text-underline-offset: 2px;
+    }
+    .dcv1-rich mark {
+      padding: 0 3px;
+      color: inherit;
+      border-radius: 3px;
+      background: rgba(246, 200, 76, .28);
+    }
+    .dcv1-rich small { opacity: .8; }
+    .dcv1-rich-table {
       max-width: 100%;
-      max-height: 420px;
+      margin: 0 0 1em;
+      overflow-x: auto;
+    }
+    .dcv1-rich table { border-collapse: collapse; }
+    .dcv1-rich td,
+    .dcv1-rich th {
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,.13);
+      vertical-align: top;
+    }
+    .dcv1-rich th {
+      background: rgba(255,255,255,.07);
+      text-align: left;
+    }
+    .dcv1-rich details {
+      margin: 0 0 1em;
+      padding: 4px 16px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+    }
+    .dcv1-rich summary {
+      padding: 8px 0;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dcv1-rich details[open] > summary {
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-rich-img {
       display: block;
-      margin: .4em 0 1em;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: 85vh;
+      margin: .6em auto 1em;
       border-radius: 12px;
       object-fit: contain;
       background: rgba(255,255,255,.04);
       cursor: zoom-in;
+    }
+    .dcv1-rich-img[data-sized="true"] {
+      display: inline-block;
+      vertical-align: top;
+      margin: 0.3em 3px 0.6em;
+    }
+    .dcv1-rich-img[data-small="true"] {
+      display: inline-block;
+      width: auto;
+      margin: 0 4px;
+      vertical-align: middle;
+    }
+    .dcv1-rich [style*="flex"] > .dcv1-rich-img {
+      min-width: 0;
+      margin: 0;
     }
     .dcv1-rich-empty {
       margin: 0;
@@ -2883,8 +3498,6 @@ function setup(ctx) {
       scrollbar-width: none;
     }
     .dcv1-card-tabs::-webkit-scrollbar { display: none; }
-    .dcv1-character-modal .dcv1-rich { max-width: 88ch; }
-    .dcv1-character-modal .dcv1-rich-img { max-height: 70vh; }
     .dcv1-card-tab {
       flex: none;
       padding: 6px 13px;
@@ -3483,6 +4096,7 @@ function setup(ctx) {
     cardErrors: new Map,
     cardTabChoice: new Map,
     cardLoading: new Set,
+    verificationDeclined: false,
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4531,13 +5145,13 @@ function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published]
     ].filter(([, value]) => String(value || "").trim());
-    const profileDescription = renderRichText(character.description, {
-      origin: apiOrigin()
-    });
+    const botUrl = botPageUrl(character, apiOrigin());
+    const profileDescription = renderRichText(retargetRetrievedBy(character.description, botUrl), { origin: apiOrigin() });
     const loadedCard = state.cardCache.get(characterId) || null;
     const tabs = loadedCard ? cardTabs(loadedCard, {
       origin: apiOrigin(),
-      fallbackDescription: character.description
+      fallbackDescription: character.description,
+      botUrl
     }) : [];
     const chosenTab = state.cardTabChoice.get(characterId);
     const activeTab = tabs.find((tab) => tab.id === chosenTab) || tabs[0] || null;
@@ -5347,6 +5961,9 @@ function setup(ctx) {
     state.communityComposerOpen = false;
     state.communityDraft = "";
     renderProfile();
+    if (getVerificationLease() || !state.verificationDeclined) {
+      loadCardPreview(normalizeId(id));
+    }
     loadCharacterCommunity(id, { quiet: true });
     try {
       const profilePath = characterClientPath(summary || { id }, "profile");
@@ -5355,8 +5972,6 @@ function setup(ctx) {
         return;
       state.selected = { ...summary, ...payload.character || {}, id };
       console.debug("[Datacat] profile fields:", Object.keys(payload.character || {}).sort().join(", "));
-      if (getVerificationLease())
-        queueMicrotask(() => void loadCardPreview(id));
     } catch (error) {
       if (selectedSerial !== state.selectedSerial)
         return;
@@ -5659,15 +6274,20 @@ function setup(ctx) {
       return `The card includes a lorebook (${plural(expectedEntries)}) but it could not be linked automatically. Import it from the character's World Books.`;
     }
   }
-  async function loadCardPreview(id) {
+  async function loadCardPreview(id, { manual = false } = {}) {
     if (!id || state.importId || state.cardLoading.has(id) || state.cardCache.has(id))
       return;
+    if (manual)
+      state.verificationDeclined = false;
     const summary = findCharacterById(id) || state.selected;
     const requestedName = summary?.name || "character";
     const existingLease = getVerificationLease();
+    if (!existingLease && state.cardLoading.size)
+      return;
     const popup = existingLease ? null : window.open(verificationPopupWaitingUrl(), "datacat-client-verification", "popup=yes,width=560,height=720");
     state.cardErrors.delete(id);
     if (!existingLease && !popup) {
+      state.verificationDeclined = true;
       state.cardErrors.set(id, publicErrorMessage(verificationPopupBlockedError(), "Allow pop-ups for Lumiverse to complete the Datacat security check."));
       render();
       return;
@@ -5683,6 +6303,8 @@ function setup(ctx) {
       state.cardCache.set(id, card);
     } catch (error) {
       const cancelled = error?.code === "VERIFICATION_CANCELLED" || error?.code === "VERIFICATION_WINDOW_CLOSED";
+      if (cancelled)
+        state.verificationDeclined = true;
       state.cardErrors.set(id, cancelled ? "Security check was not completed. Try again when you're ready." : error?.retryAfter ? `${publicErrorMessage(error, "Could not load the full card.")} Retry in ${error.retryAfter}s.` : publicErrorMessage(error, "Could not load the full card."));
     } finally {
       closeVerificationPopup(popup);
@@ -6028,7 +6650,9 @@ function setup(ctx) {
     }
     const loadCard = target.closest("[data-load-card]");
     if (loadCard) {
-      loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")));
+      loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")), {
+        manual: true
+      });
       return;
     }
     const cardTabButton = target.closest("[data-card-tab]");
@@ -6400,6 +7024,12 @@ function setup(ctx) {
     event.preventDefault();
     openProfile(normalizeId(card.getAttribute("data-card")));
   }
+  modalHost.addEventListener("load", (event) => {
+    const img = event.target;
+    if (img instanceof HTMLImageElement && img.classList.contains("dcv1-rich-img") && img.naturalWidth > 0 && img.naturalWidth < 180) {
+      img.dataset.small = "true";
+    }
+  }, true);
   root.addEventListener("click", handleSurfaceClick);
   modalHost.addEventListener("click", handleSurfaceClick);
   root.addEventListener("keydown", handleSurfaceKeydown);

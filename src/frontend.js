@@ -1,5 +1,6 @@
 import { uuidv7 } from "./uuidv7.js";
 import {
+  botPageUrl,
   cardTabs,
   collectGalleryImages,
   ensureBookInExtensions,
@@ -7,6 +8,7 @@ import {
   lorebookEntryCount,
   profileLorebookInfo,
   renderRichText,
+  retargetRetrievedBy,
   snippetText,
 } from "./richtext.js";
 
@@ -2577,67 +2579,148 @@ export function setup(ctx) {
       font-size: 11px;
     }
     .dcv1-rich {
-      max-width: 72ch;
-      color: #e8dfec;
-      font-size: 14px;
-      line-height: 1.72;
+      max-width: 88ch;
+      color: #ece4f1;
+      font-size: 15px;
+      line-height: 1.75;
       overflow-wrap: anywhere;
+      text-wrap: pretty;
     }
     .dcv1-rich > :first-child { margin-top: 0; }
     .dcv1-rich > :last-child { margin-bottom: 0; }
     .dcv1-rich p { margin: 0 0 1em; }
+    .dcv1-rich li > p,
+    .dcv1-rich td > p,
+    .dcv1-rich th > p,
+    .dcv1-rich summary > p { margin: 0; }
+    .dcv1-rich strong { color: #fff; font-weight: 700; }
     .dcv1-rich h2,
     .dcv1-rich h3,
     .dcv1-rich h4,
     .dcv1-rich h5,
     .dcv1-rich h6 {
-      margin: 1.5em 0 .55em;
-      color: var(--dc-text);
-      line-height: 1.3;
+      margin: 1.7em 0 .6em;
+      color: inherit;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -.01em;
     }
-    .dcv1-rich h2 { font-size: 18px; }
-    .dcv1-rich h3 { font-size: 16px; }
-    .dcv1-rich h4,
+    .dcv1-rich h2 {
+      padding-bottom: .3em;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      font-size: 1.55em;
+    }
+    .dcv1-rich h3 { font-size: 1.3em; }
+    .dcv1-rich h4 { font-size: 1.12em; }
     .dcv1-rich h5,
-    .dcv1-rich h6 { font-size: 14px; }
+    .dcv1-rich h6 {
+      font-size: .8em;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
     .dcv1-rich ul,
-    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.4em; }
+    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.5em; }
     .dcv1-rich li { margin: .3em 0; }
+    .dcv1-rich li::marker { color: var(--dc-yellow); }
     .dcv1-rich blockquote {
       margin: 0 0 1em;
-      padding: 6px 0 6px 14px;
-      color: #cbbfd1;
-      border-left: 3px solid rgba(246, 200, 76, .45);
+      padding: 10px 16px;
+      color: #d9cfe0;
+      border-left: 3px solid rgba(246, 200, 76, .55);
+      border-radius: 0 10px 10px 0;
+      background: rgba(255,255,255,.04);
     }
     .dcv1-rich hr {
-      margin: 1.4em 0;
+      height: 1px;
+      margin: 1.8em 0;
       border: 0;
-      border-top: 1px solid rgba(255,255,255,.12);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
     }
     .dcv1-rich code {
-      padding: 1px 5px;
+      padding: 1px 6px;
       border-radius: 5px;
-      background: rgba(255,255,255,.08);
-      font-size: .9em;
+      background: rgba(255,255,255,.09);
+      font-size: .88em;
     }
     .dcv1-rich pre {
       margin: 0 0 1em;
-      padding: 10px 12px;
+      padding: 12px 14px;
       overflow: auto;
       border-radius: 10px;
-      background: rgba(0,0,0,.35);
+      background: rgba(0,0,0,.38);
     }
     .dcv1-rich pre code { padding: 0; background: none; }
-    .dcv1-rich a { color: var(--dc-yellow); }
-    .dcv1-rich-img {
+    .dcv1-rich a {
+      color: var(--dc-yellow);
+      text-decoration-color: rgba(246, 200, 76, .4);
+      text-underline-offset: 2px;
+    }
+    .dcv1-rich mark {
+      padding: 0 3px;
+      color: inherit;
+      border-radius: 3px;
+      background: rgba(246, 200, 76, .28);
+    }
+    .dcv1-rich small { opacity: .8; }
+    .dcv1-rich-table {
       max-width: 100%;
-      max-height: 420px;
+      margin: 0 0 1em;
+      overflow-x: auto;
+    }
+    .dcv1-rich table { border-collapse: collapse; }
+    .dcv1-rich td,
+    .dcv1-rich th {
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,.13);
+      vertical-align: top;
+    }
+    .dcv1-rich th {
+      background: rgba(255,255,255,.07);
+      text-align: left;
+    }
+    .dcv1-rich details {
+      margin: 0 0 1em;
+      padding: 4px 16px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+    }
+    .dcv1-rich summary {
+      padding: 8px 0;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dcv1-rich details[open] > summary {
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-rich-img {
       display: block;
-      margin: .4em 0 1em;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: 85vh;
+      margin: .6em auto 1em;
       border-radius: 12px;
       object-fit: contain;
       background: rgba(255,255,255,.04);
       cursor: zoom-in;
+    }
+    .dcv1-rich-img[data-sized="true"] {
+      display: inline-block;
+      vertical-align: top;
+      margin: 0.3em 3px 0.6em;
+    }
+    .dcv1-rich-img[data-small="true"] {
+      display: inline-block;
+      width: auto;
+      margin: 0 4px;
+      vertical-align: middle;
+    }
+    .dcv1-rich [style*="flex"] > .dcv1-rich-img {
+      min-width: 0;
+      margin: 0;
     }
     .dcv1-rich-empty {
       margin: 0;
@@ -2653,8 +2736,6 @@ export function setup(ctx) {
       scrollbar-width: none;
     }
     .dcv1-card-tabs::-webkit-scrollbar { display: none; }
-    .dcv1-character-modal .dcv1-rich { max-width: 88ch; }
-    .dcv1-character-modal .dcv1-rich-img { max-height: 70vh; }
     .dcv1-card-tab {
       flex: none;
       padding: 6px 13px;
@@ -3268,6 +3349,7 @@ export function setup(ctx) {
     cardErrors: new Map(),
     cardTabChoice: new Map(),
     cardLoading: new Set(),
+    verificationDeclined: false,
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4637,14 +4719,17 @@ export function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published],
     ].filter(([, value]) => String(value || "").trim());
-    const profileDescription = renderRichText(character.description, {
-      origin: apiOrigin(),
-    });
+    const botUrl = botPageUrl(character, apiOrigin());
+    const profileDescription = renderRichText(
+      retargetRetrievedBy(character.description, botUrl),
+      { origin: apiOrigin() },
+    );
     const loadedCard = state.cardCache.get(characterId) || null;
     const tabs = loadedCard
       ? cardTabs(loadedCard, {
           origin: apiOrigin(),
           fallbackDescription: character.description,
+          botUrl,
         })
       : [];
     const chosenTab = state.cardTabChoice.get(characterId);
@@ -5751,6 +5836,13 @@ export function setup(ctx) {
     state.communityComposerOpen = false;
     state.communityDraft = "";
     renderProfile();
+    // Full view is the default: start loading the full card right from the tap.
+    // Without a valid security check this opens the verification window here,
+    // inside the click, so browsers allow the pop-up. Skipped only if the user
+    // already closed that window this session; the button is still there.
+    if (getVerificationLease() || !state.verificationDeclined) {
+      void loadCardPreview(normalizeId(id));
+    }
     void loadCharacterCommunity(id, { quiet: true });
     try {
       const profilePath = characterClientPath(summary || { id }, "profile");
@@ -5761,9 +5853,6 @@ export function setup(ctx) {
         "[Datacat] profile fields:",
         Object.keys(payload.character || {}).sort().join(", "),
       );
-      // Full view is the default: once the Datacat security check is done for
-      // this session, every character loads its full card without extra clicks.
-      if (getVerificationLease()) queueMicrotask(() => void loadCardPreview(id));
     } catch (error) {
       if (selectedSerial !== state.selectedSerial) return;
       state.selectedError = publicErrorMessage(error, "Could not load profile.");
@@ -6134,11 +6223,14 @@ export function setup(ctx) {
   // Preview the full card (greeting, scenario, images in the description).
   // The card is a protected transfer, so this only runs on an explicit click
   // and goes through the same Datacat security check as an import.
-  async function loadCardPreview(id) {
+  async function loadCardPreview(id, { manual = false } = {}) {
     if (!id || state.importId || state.cardLoading.has(id) || state.cardCache.has(id)) return;
+    if (manual) state.verificationDeclined = false;
     const summary = findCharacterById(id) || state.selected;
     const requestedName = summary?.name || "character";
     const existingLease = getVerificationLease();
+    // One security-check window at a time.
+    if (!existingLease && state.cardLoading.size) return;
     const popup = existingLease
       ? null
       : window.open(
@@ -6148,6 +6240,7 @@ export function setup(ctx) {
         );
     state.cardErrors.delete(id);
     if (!existingLease && !popup) {
+      state.verificationDeclined = true;
       state.cardErrors.set(
         id,
         publicErrorMessage(
@@ -6173,6 +6266,8 @@ export function setup(ctx) {
       const cancelled =
         error?.code === "VERIFICATION_CANCELLED" ||
         error?.code === "VERIFICATION_WINDOW_CLOSED";
+      // Don't re-open the check on every tap after the user backed out.
+      if (cancelled) state.verificationDeclined = true;
       state.cardErrors.set(
         id,
         cancelled
@@ -6637,7 +6732,9 @@ export function setup(ctx) {
     }
     const loadCard = target.closest("[data-load-card]");
     if (loadCard) {
-      void loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")));
+      void loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")), {
+        manual: true,
+      });
       return;
     }
     const cardTabButton = target.closest("[data-card-tab]");
@@ -7050,6 +7147,22 @@ export function setup(ctx) {
     void openProfile(normalizeId(card.getAttribute("data-card")));
   }
 
+  // Badges and icons keep their natural size; every other image fills the width.
+  modalHost.addEventListener(
+    "load",
+    (event) => {
+      const img = event.target;
+      if (
+        img instanceof HTMLImageElement &&
+        img.classList.contains("dcv1-rich-img") &&
+        img.naturalWidth > 0 &&
+        img.naturalWidth < 180
+      ) {
+        img.dataset.small = "true";
+      }
+    },
+    true,
+  );
   root.addEventListener("click", handleSurfaceClick);
   modalHost.addEventListener("click", handleSurfaceClick);
   root.addEventListener("keydown", handleSurfaceKeydown);
