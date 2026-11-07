@@ -3360,7 +3360,7 @@ function setup(ctx) {
     .dcv1-rich td > p,
     .dcv1-rich th > p,
     .dcv1-rich summary > p { margin: 0; }
-    .dcv1-rich strong { color: #fff; font-weight: 700; }
+    .dcv1-rich strong { color: inherit; font-weight: 700; }
     .dcv1-rich h2,
     .dcv1-rich h3,
     .dcv1-rich h4,
@@ -3462,16 +3462,15 @@ function setup(ctx) {
       margin-bottom: 10px;
       border-bottom: 1px solid rgba(255,255,255,.1);
     }
+    /* Same as the Datacat site: natural size, never wider than the column,
+       never cropped or height-capped (tall banners show in full). */
     .dcv1-rich-img {
       display: block;
-      width: 100%;
+      width: auto;
       max-width: 100%;
       height: auto;
-      max-height: 85vh;
       margin: .6em auto 1em;
-      border-radius: 12px;
-      object-fit: contain;
-      background: rgba(255,255,255,.04);
+      border-radius: 10px;
       cursor: zoom-in;
     }
     .dcv1-rich-img[data-sized="true"] {
