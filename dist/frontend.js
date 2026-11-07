@@ -42,6 +42,863 @@ function uuidv7() {
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
+// src/richtext.js
+var ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+function safeUrl(value, origin = "https://datacat.run") {
+  const raw = String(value || "").trim().replace(/&amp;/g, "&");
+  if (!raw || /^(javascript|data|vbscript):/i.test(raw))
+    return "";
+  try {
+    const url = new URL(raw, origin);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch (_) {
+    return "";
+  }
+}
+var TAG_MAP = {
+  div: "div",
+  p: "div",
+  section: "div",
+  article: "div",
+  header: "div",
+  footer: "div",
+  main: "div",
+  nav: "div",
+  aside: "div",
+  figure: "div",
+  figcaption: "div",
+  center: "div",
+  address: "div",
+  ul: "ul",
+  ol: "ol",
+  li: "li",
+  table: "table",
+  thead: "thead",
+  tbody: "tbody",
+  tfoot: "tfoot",
+  tr: "tr",
+  td: "td",
+  th: "th",
+  caption: "caption",
+  details: "details",
+  summary: "summary",
+  blockquote: "blockquote",
+  span: "span",
+  font: "span",
+  big: "span",
+  abbr: "span",
+  label: "span",
+  q: "span",
+  b: "strong",
+  strong: "strong",
+  i: "em",
+  em: "em",
+  cite: "em",
+  u: "u",
+  ins: "u",
+  s: "s",
+  strike: "s",
+  del: "s",
+  mark: "mark",
+  small: "small",
+  sub: "sub",
+  sup: "sup",
+  a: "a",
+  code: "code",
+  kbd: "code",
+  tt: "code"
+};
+var BLOCK_OUT = new Set([
+  "div",
+  "ul",
+  "ol",
+  "li",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "td",
+  "th",
+  "caption",
+  "details",
+  "summary",
+  "blockquote"
+]);
+var AUTO_CLOSE = { li: ["li"], p: ["p"], td: ["td", "th"], th: ["td", "th"], tr: ["tr"] };
+var DROP_BLOCKS = /<(script|style|iframe|object|embed|svg|video|audio|noscript|template|textarea|select|form|button|canvas|math|head|title)\b[\s\S]*?<\/\1\s*>/gi;
+var DROP_VOID = /<(?:link|meta|base|input|source|track|param)\b[^>]*>/gi;
+var TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+var TOKEN_RE = /(\d+)/g;
+var TOKEN_ONLY = /^(?:\d+\s*)+$/;
+var KNOWN_TAG_RE = new RegExp(`</?(?:${[...Object.keys(TAG_MAP), "img", "br", "hr", "pre", "h[1-6]"].join("|")})\\b(?:"[^"]*"|'[^']*'|[^'">])*>`, "gi");
+var NAMED_ENTITIES = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  times: "×",
+  middot: "·",
+  bull: "•",
+  hearts: "♥"
+};
+function decodeEntities(text) {
+  return String(text ?? "").replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]{2,8}));/gi, (match, dec, hex, name) => {
+    if (name)
+      return Object.hasOwn(NAMED_ENTITIES, name.toLowerCase()) ? NAMED_ENTITIES[name.toLowerCase()] : match;
+    const cp = dec ? Number(dec) : parseInt(hex, 16);
+    const bad = !cp || cp > 1114111 || cp < 32 && cp !== 10 && cp !== 9 || cp >= 55296 && cp <= 57343 || cp >= 57344 && cp <= 63743;
+    return bad ? match : String.fromCodePoint(cp);
+  });
+}
+var NAMED_COLORS = {
+  white: "#ffffff",
+  black: "#000000",
+  red: "#ff0000",
+  green: "#008000",
+  blue: "#0000ff",
+  yellow: "#ffff00",
+  orange: "#ffa500",
+  purple: "#800080",
+  pink: "#ffc0cb",
+  gray: "#808080",
+  grey: "#808080",
+  silver: "#c0c0c0",
+  gold: "#ffd700",
+  cyan: "#00ffff",
+  aqua: "#00ffff",
+  magenta: "#ff00ff",
+  fuchsia: "#ff00ff",
+  violet: "#ee82ee",
+  indigo: "#4b0082",
+  crimson: "#dc143c",
+  coral: "#ff7f50",
+  salmon: "#fa8072",
+  lavender: "#e6e6fa",
+  lime: "#00ff00",
+  navy: "#000080",
+  maroon: "#800000",
+  teal: "#008080",
+  turquoise: "#40e0d0",
+  tomato: "#ff6347",
+  orchid: "#da70d6",
+  plum: "#dda0dd",
+  hotpink: "#ff69b4",
+  deeppink: "#ff1493",
+  skyblue: "#87ceeb",
+  lightblue: "#add8e6",
+  lightgreen: "#90ee90",
+  darkred: "#8b0000",
+  brown: "#a52a2a",
+  beige: "#f5f5dc",
+  ivory: "#fffff0",
+  tan: "#d2b48c",
+  firebrick: "#b22222",
+  goldenrod: "#daa520",
+  orangered: "#ff4500",
+  royalblue: "#4169e1",
+  steelblue: "#4682b4",
+  rebeccapurple: "#663399"
+};
+function parseColor(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "transparent")
+    return { r: 0, g: 0, b: 0, a: 0 };
+  const hex = (Object.hasOwn(NAMED_COLORS, v) ? NAMED_COLORS[v] : v).match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/);
+  if (hex) {
+    let h = hex[1];
+    if (h.length <= 4)
+      h = [...h].map((c) => c + c).join("");
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16),
+      a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1
+    };
+  }
+  const fn = v.match(/^rgba?\(\s*(\d{1,3}(?:\.\d+)?%?)[\s,]+(\d{1,3}(?:\.\d+)?%?)[\s,]+(\d{1,3}(?:\.\d+)?%?)(?:[\s,/]+(\d*\.?\d+%?))?\s*\)$/);
+  if (!fn)
+    return null;
+  const channel = (s) => Math.min(255, Math.round(s.endsWith("%") ? parseFloat(s) / 100 * 255 : parseFloat(s)));
+  const alpha = fn[4] === undefined ? 1 : fn[4].endsWith("%") ? parseFloat(fn[4]) / 100 : parseFloat(fn[4]);
+  return { r: channel(fn[1]), g: channel(fn[2]), b: channel(fn[3]), a: Math.max(0, Math.min(1, alpha)) };
+}
+function luminance({ r, g, b }) {
+  const lin = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+var contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+var PANEL_LUM = luminance({ r: 23, g: 16, b: 31 });
+var cssColor = (c) => `rgba(${c.r},${c.g},${c.b},${Math.round(c.a * 100) / 100})`;
+var ENUMS = {
+  "text-align": ["left", "right", "center", "justify", "start", "end"],
+  "font-style": ["normal", "italic"],
+  "text-transform": ["none", "uppercase", "lowercase", "capitalize"],
+  display: ["block", "inline", "inline-block", "flex", "inline-flex"],
+  "flex-direction": ["row", "column", "row-reverse", "column-reverse"],
+  "flex-wrap": ["nowrap", "wrap"],
+  "justify-content": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"],
+  "align-items": ["flex-start", "flex-end", "center", "stretch", "baseline"],
+  "vertical-align": ["top", "middle", "bottom", "baseline"],
+  "font-family": ["monospace", "serif", "sans-serif"],
+  "white-space": ["normal", "pre-wrap", "nowrap"]
+};
+var FONT_KEYWORDS = {
+  "x-small": "0.75em",
+  small: "0.875em",
+  medium: "1em",
+  large: "1.2em",
+  "x-large": "1.5em",
+  "xx-large": "2em"
+};
+var FONT_SIZE_ATTR = { 1: "0.75em", 2: "0.9em", 3: "1em", 4: "1.15em", 5: "1.4em", 6: "1.8em", 7: "2.4em" };
+function length(value, { px = 1600, em = 12, pct = 100, auto = false } = {}) {
+  const v = String(value).trim().toLowerCase();
+  if (v === "auto")
+    return auto ? "auto" : "";
+  const m = /^(\d+(?:\.\d+)?)(px|em|rem|%)?$/.exec(v);
+  if (!m)
+    return "";
+  const n = parseFloat(m[1]);
+  const unit = m[2] || (n === 0 ? "px" : "");
+  if (!unit)
+    return "";
+  const cap = unit === "px" ? px : unit === "%" ? pct : em;
+  return n <= cap ? `${n}${unit}` : "";
+}
+var lengths = (value, opts, max = 4) => {
+  const parts = String(value).trim().split(/\s+/);
+  if (parts.length > max)
+    return "";
+  const out = parts.map((p) => length(p, opts));
+  return out.every(Boolean) ? out.join(" ") : "";
+};
+function cleanProperty(prop, value) {
+  const v = value.toLowerCase();
+  if (Object.hasOwn(ENUMS, prop))
+    return ENUMS[prop].includes(v) ? [[prop, v]] : null;
+  switch (prop) {
+    case "color":
+    case "background-color":
+    case "background": {
+      const c = parseColor(v);
+      return c ? [[prop === "color" ? "color" : "background-color", cssColor(c)]] : null;
+    }
+    case "font-weight":
+      return /^(normal|bold|bolder|lighter|[1-9]00)$/.test(v) ? [[prop, v]] : null;
+    case "text-decoration":
+    case "text-decoration-line":
+      return /^(none|underline|line-through|overline)( (underline|line-through|overline))?$/.test(v) ? [["text-decoration", v]] : null;
+    case "font-size": {
+      if (Object.hasOwn(FONT_KEYWORDS, v))
+        return [[prop, FONT_KEYWORDS[v]]];
+      const m = /^(\d+(?:\.\d+)?)(px|em|rem|%)$/.exec(v);
+      if (!m)
+        return null;
+      const n = parseFloat(m[1]);
+      const ok = m[2] === "px" ? n >= 8 && n <= 48 : m[2] === "%" ? n >= 50 && n <= 300 : n >= 0.5 && n <= 3;
+      return ok ? [[prop, v]] : null;
+    }
+    case "letter-spacing": {
+      if (v === "normal")
+        return [[prop, v]];
+      const out = length(v, { px: 10, em: 1, pct: 0 });
+      return out ? [[prop, out]] : null;
+    }
+    case "line-height": {
+      if (/^\d(\.\d+)?$/.test(v) && parseFloat(v) >= 1 && parseFloat(v) <= 3)
+        return [[prop, v]];
+      const out = length(v, { px: 80, em: 3, pct: 300 });
+      return out ? [[prop, out]] : null;
+    }
+    case "width":
+    case "max-width":
+    case "min-width": {
+      const out = length(v, { px: 2000, em: 100, pct: 100, auto: prop === "width" });
+      return out ? [[prop, out]] : null;
+    }
+    case "height": {
+      const out = length(v, { px: 2000, em: 100, pct: 100, auto: true });
+      return out ? [[prop, out]] : null;
+    }
+    case "margin":
+    case "padding": {
+      const out = lengths(v, { px: 200, em: 10, pct: 50, auto: prop === "margin" });
+      return out ? [[prop, out]] : null;
+    }
+    case "margin-top":
+    case "margin-bottom":
+    case "margin-left":
+    case "margin-right":
+    case "padding-top":
+    case "padding-bottom":
+    case "padding-left":
+    case "padding-right": {
+      const out = length(v, { px: 200, em: 10, pct: 50, auto: prop.startsWith("margin") });
+      return out ? [[prop, out]] : null;
+    }
+    case "gap":
+    case "row-gap":
+    case "column-gap": {
+      const out = lengths(v, { px: 100, em: 6, pct: 0 }, 2);
+      return out ? [[prop, out]] : null;
+    }
+    case "border-radius": {
+      const out = lengths(v, { px: 999, em: 20, pct: 50 });
+      return out ? [[prop, out]] : null;
+    }
+    case "border":
+    case "border-top":
+    case "border-bottom":
+    case "border-left":
+    case "border-right": {
+      const parts = v.replace(/\s*,\s*/g, ",").split(/\s+/);
+      let width = "1px", style = "solid", color = "rgba(255,255,255,0.2)";
+      for (const part of parts) {
+        if (/^(solid|dashed|dotted|double|none)$/.test(part))
+          style = part;
+        else if (/^\d(\.\d+)?(px)?$/.test(part) && parseFloat(part) <= 8)
+          width = `${parseFloat(part)}px`;
+        else {
+          const c = parseColor(part);
+          if (!c)
+            return null;
+          color = cssColor(c);
+        }
+      }
+      return [[prop, style === "none" ? "none" : `${width} ${style} ${color}`]];
+    }
+    case "opacity":
+      return /^(0|1|0?\.\d+)$/.test(v) ? [[prop, v]] : null;
+    case "flex":
+      return /^(\d{1,2}|auto|none)( \d{1,2})?( (auto|0|\d{1,4}px|\d{1,3}%))?$/.test(v) ? [[prop, v]] : null;
+    default:
+      return null;
+  }
+}
+function declarationsFrom(styleText) {
+  const decls = new Map;
+  const clean = String(styleText ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const part of clean.split(";")) {
+    const idx = part.indexOf(":");
+    if (idx < 1)
+      continue;
+    const prop = part.slice(0, idx).trim().toLowerCase();
+    const value = part.slice(idx + 1).trim().replace(/\s*!important\s*$/i, "").replace(/\s+/g, " ");
+    if (!value || /[\\<>{}@&]|url\(|expression|javascript|var\(|attr\(|env\(/i.test(value))
+      continue;
+    for (const [k, val] of cleanProperty(prop, value) || [])
+      decls.set(k, val);
+  }
+  return decls;
+}
+function styleAttribute(decls) {
+  const bg = decls.has("background-color") ? parseColor(decls.get("background-color")) : null;
+  const solidBg = bg && bg.a >= 0.5 ? bg : null;
+  const baseLum = solidBg ? luminance(solidBg) : PANEL_LUM;
+  if (decls.has("color")) {
+    const text = parseColor(decls.get("color"));
+    if (!text || text.a < 0.4 || contrast(luminance(text), baseLum) < 3)
+      decls.delete("color");
+  }
+  if (solidBg && baseLum > 0.35 && !decls.has("color"))
+    decls.set("color", "#17101f");
+  const css = [...decls].map(([k, v]) => `${k}:${v}`).join(";");
+  return css ? ` style="${esc(css)}"` : "";
+}
+function parseAttrs(raw) {
+  const attrs = Object.create(null);
+  const re = /([a-zA-Z_:][-\w:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+)))?/g;
+  let m;
+  while (m = re.exec(raw)) {
+    const name = m[1].toLowerCase();
+    if (!(name in attrs))
+      attrs[name] = decodeEntities(m[2] ?? m[3] ?? m[4] ?? "");
+  }
+  return attrs;
+}
+function applyLegacyAttributes(src, attrs, decls) {
+  const set = (prop, value) => {
+    if (decls.has(prop))
+      return;
+    for (const [k, v] of cleanProperty(prop, String(value).trim()) || [])
+      decls.set(k, v);
+  };
+  if (attrs.align)
+    set("text-align", attrs.align.toLowerCase());
+  if (attrs.bgcolor)
+    set("background-color", attrs.bgcolor);
+  if (src === "center")
+    set("text-align", "center");
+  if (src === "big")
+    set("font-size", "1.25em");
+  if (src === "font") {
+    if (attrs.color)
+      set("color", attrs.color);
+    if (/^[1-7]$/.test(attrs.size || ""))
+      decls.has("font-size") || decls.set("font-size", FONT_SIZE_ATTR[attrs.size]);
+  }
+  if (["table", "td", "th"].includes(src) && attrs.width) {
+    set("width", /^\d+$/.test(attrs.width) ? `${attrs.width}px` : attrs.width);
+  }
+}
+function openTag(src, attrs, ctx) {
+  let out = TAG_MAP[src];
+  const decls = declarationsFrom(attrs.style);
+  applyLegacyAttributes(src, attrs, decls);
+  let extra = "";
+  if (out === "a") {
+    const href = safeUrl(attrs.href, ctx.origin);
+    if (href)
+      extra = ` href="${esc(href)}" target="_blank" rel="noopener noreferrer nofollow"`;
+    else
+      out = "span";
+  }
+  if (out === "td" || out === "th") {
+    for (const key of ["colspan", "rowspan"]) {
+      if (/^\d{1,2}$/.test(attrs[key] || "") && Number(attrs[key]) > 0)
+        extra += ` ${key}="${attrs[key]}"`;
+    }
+  }
+  if (out === "details" && "open" in attrs)
+    extra += " open";
+  if (out === "ol" && /^\d{1,4}$/.test(attrs.start || ""))
+    extra += ` start="${attrs.start}"`;
+  const html = `<${out}${extra}${styleAttribute(decls)}>`;
+  return { out, html: src === "table" ? `<div class="dcv1-rich-table">${html}` : html };
+}
+var closeTag = (entry) => `</${entry.out}>${entry.src === "table" ? "</div>" : ""}`;
+function imageTag(attrs, ctx) {
+  const url = safeUrl(attrs.src, ctx.origin);
+  if (!url)
+    return "";
+  const alt = String(attrs.alt || "").slice(0, 300);
+  ctx.images.push({ url, alt });
+  const decls = declarationsFrom(attrs.style);
+  for (const drop of ["height", "display", "color", "background-color"])
+    decls.delete(drop);
+  if (!decls.has("width") && attrs.width) {
+    const w = /^\d+$/.test(attrs.width) ? `${attrs.width}px` : attrs.width;
+    for (const [k, v] of cleanProperty("width", w) || [])
+      decls.set(k, v);
+  }
+  const w = decls.get("width") || "";
+  const m = /^(\d+(?:\.\d+)?)(%|px)$/.exec(w);
+  const partial = m && (m[2] === "px" || Number(m[1]) < 100);
+  if (partial && m[2] === "%")
+    decls.set("width", `calc(${Number(m[1])}% - 12px)`);
+  return `<img class="dcv1-rich-img"${partial ? ' data-sized="true"' : ""} src="${esc(url)}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-lightbox-src="${esc(url)}"${styleAttribute(decls)}>`;
+}
+function createTagger(ctx) {
+  const stack = [];
+  const store = (html) => `${ctx.tags.push(html) - 1}`;
+  const closeAbove = (index) => {
+    const popped = stack.splice(index).reverse();
+    return { html: popped.map(closeTag).join(""), block: popped.some((e) => BLOCK_OUT.has(e.out)) };
+  };
+  const wrap = (html, block) => block ? `
+${store(html)}
+` : store(html);
+  return {
+    run(text) {
+      return text.replace(TAG_RE, (match, slash, rawName, rawAttrs) => {
+        const name = rawName.toLowerCase();
+        if (name === "img") {
+          if (slash)
+            return "";
+          const html = imageTag(parseAttrs(rawAttrs), ctx);
+          return html ? store(html) : "";
+        }
+        if (!Object.hasOwn(TAG_MAP, name))
+          return match;
+        if (slash) {
+          const index = stack.map((e) => e.src).lastIndexOf(name);
+          if (index < 0)
+            return "";
+          const { html, block } = closeAbove(index);
+          return wrap(html, block);
+        }
+        let prefix = "";
+        let block = false;
+        const top = stack[stack.length - 1];
+        if (top && AUTO_CLOSE[name]?.includes(top.src)) {
+          const closed = closeAbove(stack.length - 1);
+          prefix = closed.html;
+          block = closed.block;
+        }
+        const { out, html } = openTag(name, parseAttrs(rawAttrs), ctx);
+        stack.push({ src: name, out });
+        return wrap(prefix + html, block || BLOCK_OUT.has(out));
+      });
+    },
+    finish() {
+      if (!stack.length)
+        return "";
+      const { html } = closeAbove(0);
+      return `
+${store(html)}
+`;
+    }
+  };
+}
+function prepareSource(source, ctx) {
+  let text = String(source ?? "").replace(/\r\n?/g, `
+`).replace(/[\u0000-]/g, "");
+  text = text.replace(/<!--[\s\S]*?-->/g, "").replace(DROP_BLOCKS, "").replace(DROP_VOID, "");
+  text = text.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre\s*>/gi, (_, inner) => `
+
+\`\`\`
+${decodeEntities(inner.replace(/<\/?[a-zA-Z][^>]*>/g, "")).replace(/```/g, "'''")}
+\`\`\`
+
+`);
+  text = text.replace(/<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1\s*>/gi, (_, level, rawAttrs, inner) => {
+    const line = inner.replace(/\s*\n\s*/g, " ").trim();
+    if (!line)
+      return `
+
+`;
+    const md = `
+
+${"#".repeat(Number(level))} ${line}
+
+`;
+    return /\b(?:align|style)\s*=/i.test(rawAttrs) ? `
+<div${rawAttrs}>${md}</div>
+` : md;
+  });
+  text = text.replace(/<br\b[^>]*>/gi, `
+`).replace(/<hr\b[^>]*>/gi, `
+
+---
+
+`);
+  const tagger = createTagger(ctx);
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  const joined = parts.map((part, i) => i % 2 ? part : tagger.run(part)).join("") + tagger.finish();
+  return joined;
+}
+function resolveTokens(html, ctx) {
+  return html.replace(TOKEN_RE, (_, i) => ctx.tags[Number(i)] ?? "");
+}
+function renderInline(text, ctx) {
+  const stash = [];
+  const hold = (html) => `\x00${stash.push(html) - 1}\x00`;
+  let out = esc(decodeEntities(text).replace(/[-]/g, ""));
+  out = out.replace(/`([^`\n]+)`/g, (_, code) => hold(`<code>${code}</code>`));
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (_, alt, href) => {
+    const url = safeUrl(href, ctx.origin);
+    if (!url)
+      return "";
+    ctx.images.push({ url, alt: alt.trim() });
+    return hold(`<img class="dcv1-rich-img" src="${esc(url)}" alt="${alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-lightbox-src="${esc(url)}">`);
+  });
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (_, label, href) => {
+    const url = safeUrl(href, ctx.origin);
+    return url ? hold(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`) : label;
+  });
+  out = out.replace(/(^|[\s(]|&quot;|&#39;)(https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<)])+)/g, (_, lead, matched) => {
+    const href = matched.replace(/[.,;:!?]+$/, "");
+    const tail = matched.slice(href.length);
+    const url = safeUrl(href, ctx.origin);
+    return url ? `${lead}${hold(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${href}</a>`)}${tail}` : `${lead}${matched}`;
+  });
+  out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>").replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^\w*])__([^_\n]+)__(?!\w)/g, "$1<strong>$2</strong>").replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?!\w)/g, "$1<em>$2</em>").replace(/(^|[^\w_])_([^_\s][^_\n]*?)_(?!\w)/g, "$1<em>$2</em>").replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  let guard = 0;
+  while (/\u0000\d+\u0000/.test(out) && guard++ < 5) {
+    out = out.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[Number(i)] ?? "");
+  }
+  return resolveTokens(out, ctx);
+}
+function renderRichText(source, { origin = "https://datacat.run" } = {}) {
+  const ctx = { origin, images: [], tags: [] };
+  const lines = prepareSource(source, ctx).split(`
+`);
+  const html = [];
+  let paragraph = [];
+  let list = null;
+  let quote = [];
+  let fence = null;
+  const flushParagraph = () => {
+    if (!paragraph.length)
+      return;
+    html.push(`<p>${paragraph.map((line) => renderInline(line, ctx)).join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list)
+      return;
+    html.push(`<${list.tag}>${list.items.map((item) => `<li>${renderInline(item, ctx)}</li>`).join("")}</${list.tag}>`);
+    list = null;
+  };
+  const flushQuote = () => {
+    if (!quote.length)
+      return;
+    html.push(`<blockquote>${quote.map((line) => renderInline(line, ctx)).join("<br>")}</blockquote>`);
+    quote = [];
+  };
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/, "");
+    if (fence) {
+      if (/^```/.test(line.trim())) {
+        html.push(`<pre><code>${esc(fence.join(`
+`))}</code></pre>`);
+        fence = null;
+      } else {
+        fence.push(rawLine);
+      }
+      continue;
+    }
+    if (/^```/.test(line.trim())) {
+      flushAll();
+      fence = [];
+      continue;
+    }
+    if (!line.trim()) {
+      flushAll();
+      continue;
+    }
+    if (TOKEN_ONLY.test(line.trim())) {
+      flushAll();
+      html.push(resolveTokens(line.trim(), ctx));
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.*?)\s*#*$/.exec(line);
+    if (heading) {
+      flushAll();
+      const level = Math.min(6, heading[1].length + 1);
+      html.push(`<h${level}>${renderInline(heading[2], ctx)}</h${level}>`);
+      continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      flushAll();
+      html.push("<hr>");
+      continue;
+    }
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      flushParagraph();
+      flushQuote();
+      const tag = bullet ? "ul" : "ol";
+      if (list && list.tag !== tag)
+        flushList();
+      list ||= { tag, items: [] };
+      list.items.push((bullet || numbered)[1]);
+      continue;
+    }
+    const quoted = /^\s*>\s?(.*)$/.exec(line);
+    if (quoted) {
+      flushParagraph();
+      flushList();
+      quote.push(quoted[1]);
+      continue;
+    }
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+  }
+  if (fence)
+    html.push(`<pre><code>${esc(fence.join(`
+`))}</code></pre>`);
+  flushAll();
+  const seen = new Set;
+  const images = ctx.images.filter((image) => !seen.has(image.url) && seen.add(image.url));
+  return {
+    html: resolveTokens(html.join(""), ctx),
+    images,
+    plain: decodeEntities(String(source ?? "").replace(KNOWN_TAG_RE, " ")).replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
+  };
+}
+function retargetRetrievedBy(text, url) {
+  if (!url || typeof text !== "string")
+    return text;
+  return text.replace(/(\[retrieved by\s+)https?:\/\/(?:www\.)?datacat\.run\/?(?=\s+on\b)/i, (_, lead) => `${lead}${url}`);
+}
+function botPageUrl(character, origin = "https://datacat.run") {
+  const id = String(character?.id || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
+    return "";
+  for (const key of ["url", "webUrl", "pageUrl", "profileUrl", "permalink"]) {
+    const raw = character?.[key];
+    if (typeof raw !== "string")
+      continue;
+    try {
+      const url = new URL(raw, origin);
+      if (url.origin === origin && url.pathname.toLowerCase().includes(id))
+        return url.href;
+    } catch (_) {}
+  }
+  return `${origin}/characters/${id}`;
+}
+function snippetText(source, maxLength = 400) {
+  const text = decodeEntities(String(source ?? "").replace(/<!--[\s\S]*?-->/g, "").replace(DROP_BLOCKS, " ").replace(/<br\b[^>]*>/gi, " ").replace(KNOWN_TAG_RE, " ")).replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^\s*>\s?/gm, "").replace(/(\*\*|__|~~|`)/g, "").replace(/(^|\s)[*_]+(?=\S)|(?<=\S)[*_]+(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
+}
+function collectGalleryImages(character, origin = "https://datacat.run") {
+  const sources = [
+    character?.images,
+    character?.gallery,
+    character?.galleryImages,
+    character?.gallery_images,
+    character?.media,
+    character?.screenshots
+  ];
+  const found = [];
+  for (const group of sources) {
+    const items = Array.isArray(group) ? group : Array.isArray(group?.items) ? group.items : [];
+    for (const item of items) {
+      const raw = typeof item === "string" ? item : item?.url || item?.src || item?.imageUrl || item?.image?.url || "";
+      const url = safeUrl(raw, origin);
+      if (!url)
+        continue;
+      if (item?.status && String(item.status).toLowerCase() !== "ready")
+        continue;
+      found.push({
+        url,
+        alt: typeof item === "object" ? String(item?.caption || item?.alt || "") : ""
+      });
+    }
+  }
+  const seen = new Set;
+  return found.filter((image) => !seen.has(image.url) && seen.add(image.url));
+}
+function findCharacterBook(card) {
+  const source = card && typeof card === "object" ? card : {};
+  const candidates = [
+    source.data?.character_book,
+    source.extensions?.character_book,
+    source.data?.extensions?.character_book,
+    source.character_book,
+    source.characterBook
+  ];
+  return candidates.find((book) => book && typeof book === "object") || null;
+}
+function lorebookEntryCount(book) {
+  const entries = Array.isArray(book?.entries) ? book.entries : book?.entries && typeof book.entries === "object" ? Object.values(book.entries) : [];
+  return entries.filter((entry) => entry && String(entry.content ?? entry.text ?? "").trim()).length;
+}
+function ensureBookInExtensions(card) {
+  if (!card || typeof card !== "object")
+    return card;
+  const book = findCharacterBook(card);
+  if (!book)
+    return card;
+  if (card.spec && card.data)
+    return card;
+  if (card.extensions?.character_book)
+    return card;
+  card.extensions = {
+    ...card.extensions && typeof card.extensions === "object" ? card.extensions : {},
+    character_book: book
+  };
+  return card;
+}
+function profileLorebookInfo(character) {
+  const entryCount = Number(character?.lorebookEntryCount ?? character?.lorebookEntries ?? character?.stats?.lorebookEntries ?? character?.lorebook?.entryCount ?? character?.lorebook?.entries?.length ?? character?.characterBook?.entries?.length ?? 0);
+  const flag = character?.hasLorebook === true || character?.has_lorebook === true || Boolean(character?.lorebook) || Boolean(character?.characterBook);
+  const tagged = [...character?.tags || [], ...character?.customTags || []].map((tag) => String(typeof tag === "string" ? tag : tag?.name || tag?.label || "").toLowerCase()).some((tag) => /lore\s*-?book|world\s*-?(book|info)/.test(tag));
+  const count = Number.isFinite(entryCount) && entryCount > 0 ? entryCount : 0;
+  return { has: flag || tagged || count > 0, count };
+}
+var NOTES_KEYS = ["creator_notes", "creatorNotes", "creatorcomment"];
+var GREETING_KEYS = ["first_mes", "firstMes", "first_message"];
+var FULL_TEXT_SECTIONS = [
+  ["Description", ["description"]],
+  ["Personality", ["personality"]],
+  ["Scenario", ["scenario"]],
+  ["Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],
+  ["System Prompt", ["system_prompt", "systemPrompt"]],
+  ["Post-History Instructions", ["post_history_instructions", "postHistoryInstructions"]]
+];
+function cardField(card, keys) {
+  for (const holder of [card?.data, card]) {
+    if (!holder || typeof holder !== "object")
+      continue;
+    for (const key of keys) {
+      const value = holder[key];
+      if (typeof value === "string" && value.trim())
+        return value;
+    }
+  }
+  return "";
+}
+function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = "", botUrl = "" } = {}) {
+  const tabs = [];
+  const fix = (text) => retargetRetrievedBy(text, botUrl);
+  const add = (id, label, source, count) => {
+    const rendered = renderRichText(source, { origin });
+    if (!rendered.html)
+      return;
+    tabs.push({ id, label, count, ...rendered });
+  };
+  const notes = cardField(card, NOTES_KEYS);
+  if (notes)
+    add("notes", "Description", fix(notes));
+  const sections = FULL_TEXT_SECTIONS.map(([heading, keys]) => {
+    let source = cardField(card, keys);
+    if (!source && heading === "Description" && !notes)
+      source = fallbackDescription;
+    return [heading, source];
+  }).filter(([, source]) => source);
+  if (sections.length) {
+    const rendered = sections.map(([heading, source]) => ({
+      heading,
+      ...renderRichText(fix(source), { origin })
+    }));
+    const seen = new Set;
+    tabs.push({
+      id: "full",
+      label: "Full Text",
+      html: rendered.filter((item) => item.html).map((item) => `<section class="dcv1-full-section"><h3>${item.heading}</h3>${item.html}</section>`).join(""),
+      images: rendered.flatMap((item) => item.images).filter((image) => !seen.has(image.url) && seen.add(image.url)),
+      plain: rendered.map((item) => item.plain).join(`
+
+`)
+    });
+  }
+  const greeting = cardField(card, GREETING_KEYS);
+  if (greeting)
+    add("greeting", "Greeting", fix(greeting));
+  const alts = [card?.data?.alternate_greetings, card?.alternate_greetings, card?.alternateGreetings].find((list) => Array.isArray(list));
+  const greetings = (alts || []).filter((text) => typeof text === "string" && text.trim());
+  if (greetings.length) {
+    const rendered = greetings.map((text) => renderRichText(fix(text), { origin }));
+    const html = rendered.map((item, index) => `<div class="dcv1-alt-greeting"><h3>Greeting ${index + 2}</h3>${item.html}</div>`).join("");
+    const seen = new Set;
+    const images = rendered.flatMap((item) => item.images).filter((image) => !seen.has(image.url) && seen.add(image.url));
+    tabs.push({
+      id: "alts",
+      label: "Alt Greetings",
+      count: greetings.length,
+      html,
+      images,
+      plain: rendered.map((item) => item.plain).join(`
+
+`)
+    });
+  }
+  return tabs;
+}
+
 // src/frontend.js
 var VERSION = "0.5.48";
 var DISPLAY_VERSION = "0.1";
@@ -2354,21 +3211,29 @@ function setup(ctx) {
       z-index: 35;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: 0;
       background: rgba(4, 3, 7, .78);
       backdrop-filter: blur(5px);
     }
-    .dcv1-character-modal {
-      width: min(940px, calc(100vw - 48px));
-      height: min(760px, calc(100dvh - 48px));
-      max-height: calc(100dvh - 48px);
+    /* Full view is the default: the character modal always fills the screen. */
+    .dcv1-page-modal-host .dcv1-character-modal {
+      position: fixed !important;
+      inset: 0 !important;
+      width: auto !important;
+      height: auto !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      transform: none !important;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       overflow: hidden;
-      border: 1px solid rgba(246, 200, 76, .3);
-      border-radius: 20px;
+      border: 0;
+      border-radius: 0;
       background: #17101f;
-      box-shadow: 0 28px 80px rgba(0,0,0,.66);
     }
     .dcv1-character-modal-head {
       display: flex;
@@ -2389,7 +3254,7 @@ function setup(ctx) {
     .dcv1-character-modal-body {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(240px, 42%) minmax(0, 1fr);
+      grid-template-columns: minmax(240px, 36%) minmax(0, 1fr);
       overflow: hidden;
     }
     .dcv1-character-hero {
@@ -2446,7 +3311,8 @@ function setup(ctx) {
     .dcv1-character-info {
       min-height: 0;
       overflow: auto;
-      padding: 22px;
+      padding: 28px 32px 32px;
+      scrollbar-gutter: stable;
     }
     .dcv1-character-name {
       margin: 0;
@@ -2459,12 +3325,303 @@ function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
-    .dcv1-character-description {
-      margin: 18px 0 0;
-      color: #ded4e2;
+    .dcv1-character-byline .dcv1-creator-link {
+      padding: 3px 11px;
+      border: 1px solid rgba(219, 39, 119, .55);
+      border-radius: 999px;
+      background: rgba(219, 39, 119, .14);
+      color: #ffd9ea;
+      font-weight: 600;
+    }
+    .dcv1-detail-section {
+      margin-top: 26px;
+      min-width: 0;
+    }
+    .dcv1-detail-heading {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0 0 11px;
+      padding-bottom: 8px;
+      color: var(--dc-yellow);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .dcv1-detail-heading span {
+      padding: 1px 7px;
+      color: var(--dc-muted);
+      border-radius: 999px;
+      background: rgba(255,255,255,.07);
+      font-size: 10px;
+      letter-spacing: 0;
+    }
+    .dcv1-detail-section .dcv1-profile-tags { margin-top: 0; }
+    .dcv1-lore-chip {
+      width: fit-content;
+      max-width: 100%;
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      margin-top: 16px;
+      padding: 6px 12px;
+      color: #f4e3ff;
+      border: 1px solid rgba(192, 142, 240, .5);
+      border-radius: 999px;
+      background: rgba(116, 73, 163, .28);
       font-size: 12px;
-      line-height: 1.65;
-      white-space: pre-wrap;
+    }
+    .dcv1-lore-chip span:last-child {
+      color: var(--dc-muted);
+      font-size: 11px;
+    }
+    .dcv1-rich {
+      max-width: 88ch;
+      color: #ece4f1;
+      font-size: 15px;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+      text-wrap: pretty;
+    }
+    .dcv1-rich > :first-child { margin-top: 0; }
+    .dcv1-rich > :last-child { margin-bottom: 0; }
+    .dcv1-rich p { margin: 0 0 1em; }
+    .dcv1-rich li > p,
+    .dcv1-rich td > p,
+    .dcv1-rich th > p,
+    .dcv1-rich summary > p { margin: 0; }
+    .dcv1-rich strong { color: inherit; font-weight: 700; }
+    .dcv1-rich h2,
+    .dcv1-rich h3,
+    .dcv1-rich h4,
+    .dcv1-rich h5,
+    .dcv1-rich h6 {
+      margin: 1.7em 0 .6em;
+      color: inherit;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -.01em;
+    }
+    .dcv1-rich h2 {
+      padding-bottom: .3em;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      font-size: 1.55em;
+    }
+    .dcv1-rich h3 { font-size: 1.3em; }
+    .dcv1-rich h4 { font-size: 1.12em; }
+    .dcv1-rich h5,
+    .dcv1-rich h6 {
+      font-size: .8em;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
+    .dcv1-rich ul,
+    .dcv1-rich ol { margin: 0 0 1em; padding-left: 1.5em; }
+    .dcv1-rich li { margin: .3em 0; }
+    .dcv1-rich li::marker { color: var(--dc-yellow); }
+    .dcv1-rich blockquote {
+      margin: 0 0 1em;
+      padding: 10px 16px;
+      color: #d9cfe0;
+      border-left: 3px solid rgba(246, 200, 76, .55);
+      border-radius: 0 10px 10px 0;
+      background: rgba(255,255,255,.04);
+    }
+    .dcv1-rich hr {
+      height: 1px;
+      margin: 1.8em 0;
+      border: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+    }
+    .dcv1-rich code {
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: rgba(255,255,255,.09);
+      font-size: .88em;
+    }
+    .dcv1-rich pre {
+      margin: 0 0 1em;
+      padding: 12px 14px;
+      overflow: auto;
+      border-radius: 10px;
+      background: rgba(0,0,0,.38);
+    }
+    .dcv1-rich pre code { padding: 0; background: none; }
+    .dcv1-rich a {
+      color: var(--dc-yellow);
+      text-decoration-color: rgba(246, 200, 76, .4);
+      text-underline-offset: 2px;
+    }
+    .dcv1-rich mark {
+      padding: 0 3px;
+      color: inherit;
+      border-radius: 3px;
+      background: rgba(246, 200, 76, .28);
+    }
+    .dcv1-rich small { opacity: .8; }
+    .dcv1-rich-table {
+      max-width: 100%;
+      margin: 0 0 1em;
+      overflow-x: auto;
+    }
+    .dcv1-rich table { border-collapse: collapse; }
+    .dcv1-rich td,
+    .dcv1-rich th {
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,.13);
+      vertical-align: top;
+    }
+    .dcv1-rich th {
+      background: rgba(255,255,255,.07);
+      text-align: left;
+    }
+    .dcv1-rich details {
+      margin: 0 0 1em;
+      padding: 4px 16px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+    }
+    .dcv1-rich summary {
+      padding: 8px 0;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dcv1-rich details[open] > summary {
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    /* Same as the Datacat site: natural size, never wider than the column,
+       never cropped or height-capped (tall banners show in full). */
+    .dcv1-rich-img {
+      display: block;
+      width: auto;
+      max-width: 100%;
+      height: auto;
+      margin: .6em auto 1em;
+      border-radius: 10px;
+      cursor: zoom-in;
+    }
+    .dcv1-rich-img[data-sized="true"] {
+      display: inline-block;
+      vertical-align: top;
+      margin: 0.3em 3px 0.6em;
+    }
+    .dcv1-rich-img[data-small="true"] {
+      display: inline-block;
+      width: auto;
+      margin: 0 4px;
+      vertical-align: middle;
+    }
+    .dcv1-rich [style*="flex"] > .dcv1-rich-img {
+      min-width: 0;
+      margin: 0;
+    }
+    .dcv1-rich-empty {
+      margin: 0;
+      color: var(--dc-muted);
+      font-size: 13px;
+    }
+    .dcv1-card-tabs {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 14px;
+      padding-bottom: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .dcv1-card-tabs::-webkit-scrollbar { display: none; }
+    .dcv1-card-tab {
+      flex: none;
+      padding: 6px 13px;
+      color: var(--dc-muted);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .dcv1-card-tab span { opacity: .7; }
+    .dcv1-card-tab[aria-selected="true"] {
+      color: #17101f;
+      border-color: var(--dc-yellow);
+      background: var(--dc-yellow);
+    }
+    .dcv1-alt-greeting + .dcv1-alt-greeting {
+      margin-top: 1.4em;
+      padding-top: 1.2em;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-full-section + .dcv1-full-section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-full-section > h3 { margin: 0 0 8px; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
+    .dcv1-alt-greeting > h3 { margin-top: 0; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
+    .dcv1-card-load {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 16px;
+      padding: 12px 14px;
+      border: 1px dashed rgba(255,255,255,.16);
+      border-radius: 12px;
+      color: var(--dc-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .dcv1-card-load span { flex: 1 1 200px; min-width: 0; }
+    .dcv1-gallery {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 132px;
+      gap: 10px;
+      padding-bottom: 6px;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+    }
+    .dcv1-gallery-item {
+      width: 132px;
+      height: 132px;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      cursor: zoom-in;
+      scroll-snap-align: start;
+    }
+    .dcv1-gallery-item:hover,
+    .dcv1-gallery-item:focus-visible { border-color: var(--dc-yellow); }
+    .dcv1-gallery-item img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .dcv1-lightbox {
+      position: absolute;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      outline: none;
+      background: rgba(4, 3, 7, .92);
+      cursor: zoom-out;
+    }
+    .dcv1-lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 10px;
+      object-fit: contain;
     }
     .dcv1-character-modal-actions {
       display: flex;
@@ -2776,7 +3933,7 @@ function setup(ctx) {
         -webkit-overflow-scrolling: touch;
       }
       .dcv1-character-hero {
-        height: min(58vh, 520px);
+        height: min(40vh, 360px);
       }
       .dcv1-character-info {
         overflow: visible;
@@ -2977,6 +4134,11 @@ function setup(ctx) {
     selected: null,
     selectedLoading: false,
     selectedError: "",
+    cardCache: new Map,
+    cardErrors: new Map,
+    cardTabChoice: new Map,
+    cardLoading: new Set,
+    verificationDeclined: false,
     selectedSerial: 0,
     selectedCreator: null,
     selectedCreatorRef: persistedCreatorRef,
@@ -4025,6 +5187,23 @@ function setup(ctx) {
       ["Tokens", stats.tokens],
       ["Published", published]
     ].filter(([, value]) => String(value || "").trim());
+    const botUrl = botPageUrl(character, apiOrigin());
+    const profileDescription = renderRichText(retargetRetrievedBy(character.description, botUrl), { origin: apiOrigin() });
+    const loadedCard = state.cardCache.get(characterId) || null;
+    const tabs = loadedCard ? cardTabs(loadedCard, {
+      origin: apiOrigin(),
+      fallbackDescription: character.description,
+      botUrl
+    }) : [];
+    const chosenTab = state.cardTabChoice.get(characterId);
+    const activeTab = tabs.find((tab) => tab.id === chosenTab) || tabs[0] || null;
+    const description = activeTab || profileDescription;
+    const cardLoading = state.cardLoading.has(characterId);
+    const cardError = state.cardErrors.get(characterId) || "";
+    const cardBookEntries = lorebookEntryCount(findCharacterBook(loadedCard));
+    const lorebookInfo = cardBookEntries ? { has: true, count: cardBookEntries } : profileLorebookInfo(character);
+    const inlineUrls = new Set([profileDescription, ...tabs].flatMap((item) => item.images.map((image) => image.url)));
+    const gallery = collectGalleryImages(character, apiOrigin()).filter((image) => image.url !== avatarUrl && !inlineUrls.has(image.url));
     modalHost.innerHTML = `
       <div class="dcv1-modal-layer" data-character-backdrop>
         <article class="dcv1-character-modal" role="dialog" aria-modal="true" aria-labelledby="dcv1-character-title">
@@ -4046,8 +5225,29 @@ function setup(ctx) {
                 by ${creatorRef ? `<button class="dcv1-creator-link" type="button" data-creator-ref="${escapeAttribute(creatorRef)}">${escapeHtml(creator)}</button>` : escapeHtml(creator)}
               </div>
               ${statItems.length ? `<div class="dcv1-character-stat-strip">${statItems.map(([label, value]) => `<div class="dcv1-stat"><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(label)}</span></div>`).join("")}</div>` : ""}
-              <div class="dcv1-character-description">${escapeHtml(character.description || "No description available.")}</div>
-              ${tags.length ? `<div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
+              ${lorebookInfo.has ? `<div class="dcv1-lore-chip" title="This character ships with a lorebook that is imported into Lumiverse automatically.">
+                    <span aria-hidden="true">\uD83D\uDCD6</span>
+                    <strong>Lorebook</strong>${lorebookInfo.count ? `<span>${lorebookInfo.count} ${lorebookInfo.count === 1 ? "entry" : "entries"}</span>` : ""}
+                  </div>` : ""}
+              <section class="dcv1-detail-section">
+                <h2 class="dcv1-detail-heading">About</h2>
+                ${tabs.length > 1 ? `<div class="dcv1-card-tabs" role="tablist">${tabs.map((tab) => `<button class="dcv1-card-tab" type="button" role="tab" aria-selected="${tab === activeTab}" data-card-id="${escapeAttribute(characterId)}" data-card-tab="${escapeAttribute(tab.id)}">${escapeHtml(tab.label)}${tab.count ? ` <span>${tab.count}</span>` : ""}</button>`).join("")}</div>` : ""}
+                ${description.html ? `<div class="dcv1-rich">${description.html}</div>` : `<p class="dcv1-rich-empty">No description available.</p>`}
+                ${loadedCard ? "" : `<div class="dcv1-card-load">
+                      <button class="dcv1-button" type="button" data-load-card="${escapeAttribute(characterId)}" ${cardLoading ? 'data-loading="true"' : ""} ${cardLoading || state.importId ? "disabled" : ""}>${cardLoading ? "Loading full card…" : cardError ? "Try again" : getVerificationLease() ? "Load full card" : "Verify & load full card"}</button>
+                      <span>${cardError ? escapeHtml(cardError) : cardLoading ? "Fetching the full card…" : getVerificationLease() ? "Greeting, scenario, example dialogue and images." : "One-time security check per session. After that, characters open in full view automatically."}</span>
+                    </div>`}
+              </section>
+              ${tags.length ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Tags</h2>
+                    <div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>
+                  </section>` : ""}
+              ${gallery.length ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Images <span>${gallery.length}</span></h2>
+                    <div class="dcv1-gallery">${gallery.map((image) => `<button class="dcv1-gallery-item" type="button" data-lightbox-src="${escapeAttribute(image.url)}" aria-label="${escapeAttribute(image.alt || "Open image")}">
+                          <img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                        </button>`).join("")}</div>
+                  </section>` : ""}
               ${renderCharacterCommunity(characterId)}
               ${state.selectedLoading ? `<div class="dcv1-status">Loading complete character details…</div>` : ""}
             </div>
@@ -4058,7 +5258,7 @@ function setup(ctx) {
                   <button class="dcv1-button" data-primary type="button" data-view-import="${escapeAttribute(lumiverseCharacterId)}">View</button>
                   <button class="dcv1-button" type="button" data-chat-import="${escapeAttribute(lumiverseCharacterId)}" ${isOpeningChat ? 'data-loading="true" aria-busy="true" aria-label="Opening chat"' : ""} ${state.chatOpeningId ? "disabled" : ""}>${isOpeningChat ? "" : "Chat"}</button>
                 ` : `
-                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId ? "disabled" : ""}>
+                  <button class="dcv1-button" data-primary ${isImporting ? 'data-loading="true"' : ""} type="button" data-import="${escapeAttribute(character.id)}" ${state.importId || state.cardLoading.size ? "disabled" : ""}>
                     ${isImporting ? "Importing…" : "Import"}
                   </button>
                 `}
@@ -4195,7 +5395,7 @@ function setup(ctx) {
             ${creatorRef ? `<button class="dcv1-creator-link" type="button" data-creator-ref="${escapeAttribute(creatorRef)}">${escapeHtml(creator)}</button>` : escapeHtml(creator)}
             ${spottedBy ? ` · Spotted by @${escapeHtml(spottedBy)}` : ""}
           </div>
-          <p class="dcv1-fresh-description">${escapeHtml(character.description || "")}</p>
+          <p class="dcv1-fresh-description">${escapeHtml(snippetText(character.description, 320))}</p>
           ${tags.length ? `<div class="dcv1-fresh-tags">${tags.map((tag) => `<span class="dcv1-fresh-tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
         </div>
         <div class="dcv1-fresh-rail">
@@ -4803,6 +6003,9 @@ function setup(ctx) {
     state.communityComposerOpen = false;
     state.communityDraft = "";
     renderProfile();
+    if (getVerificationLease() || !state.verificationDeclined) {
+      loadCardPreview(normalizeId(id));
+    }
     loadCharacterCommunity(id, { quiet: true });
     try {
       const profilePath = characterClientPath(summary || { id }, "profile");
@@ -4810,6 +6013,7 @@ function setup(ctx) {
       if (selectedSerial !== state.selectedSerial)
         return;
       state.selected = { ...summary, ...payload.character || {}, id };
+      console.debug("[Datacat] profile fields:", Object.keys(payload.character || {}).sort().join(", "));
     } catch (error) {
       if (selectedSerial !== state.selectedSerial)
         return;
@@ -5093,8 +6297,67 @@ function setup(ctx) {
       return transfer();
     }
   }
+  async function confirmLorebookImport(lumiverseCharacterId, expectedEntries) {
+    const plural = (count) => `${count} ${count === 1 ? "entry" : "entries"}`;
+    try {
+      const response = await fetch("/api/v1/world-books/import-character-book", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ characterId: lumiverseCharacterId })
+      });
+      const result = await readJson(response);
+      const count = Number(result?.entry_count) || expectedEntries;
+      return `Lorebook imported and linked · ${plural(count)}`;
+    } catch (_) {
+      return `The card includes a lorebook (${plural(expectedEntries)}) but it could not be linked automatically. Import it from the character's World Books.`;
+    }
+  }
+  async function loadCardPreview(id, { manual = false } = {}) {
+    if (!id || state.importId || state.cardLoading.has(id) || state.cardCache.has(id))
+      return;
+    if (manual)
+      state.verificationDeclined = false;
+    const summary = findCharacterById(id) || state.selected;
+    const requestedName = summary?.name || "character";
+    const existingLease = getVerificationLease();
+    if (!existingLease && state.cardLoading.size)
+      return;
+    const popup = existingLease ? null : window.open(verificationPopupWaitingUrl(), "datacat-client-verification", "popup=yes,width=560,height=720");
+    state.cardErrors.delete(id);
+    if (!existingLease && !popup) {
+      state.verificationDeclined = true;
+      state.cardErrors.set(id, publicErrorMessage(verificationPopupBlockedError(), "Allow pop-ups for Lumiverse to complete the Datacat security check."));
+      render();
+      return;
+    }
+    state.cardLoading.add(id);
+    render();
+    try {
+      const transfer = await resolveImportTransferContract(summary || { id }, id);
+      const card = await withImportVerification(requestedName, popup, () => datacatFetch(transfer.cardPath));
+      if (!card || typeof card !== "object") {
+        throw new Error("Datacat returned an empty card.");
+      }
+      state.cardCache.set(id, card);
+    } catch (error) {
+      const cancelled = error?.code === "VERIFICATION_CANCELLED" || error?.code === "VERIFICATION_WINDOW_CLOSED";
+      if (cancelled)
+        state.verificationDeclined = true;
+      state.cardErrors.set(id, cancelled ? "Security check was not completed. Try again when you're ready." : error?.retryAfter ? `${publicErrorMessage(error, "Could not load the full card.")} Retry in ${error.retryAfter}s.` : publicErrorMessage(error, "Could not load the full card."));
+    } finally {
+      closeVerificationPopup(popup);
+      if (state.importFeedback?.tone === "verification")
+        setImportFeedback(null);
+      state.cardLoading.delete(id);
+      render();
+    }
+  }
   async function importCharacter(id) {
-    if (!id || state.importId)
+    if (!id || state.importId || state.cardLoading.size)
       return;
     const existingCharacterId = savedLumiverseId(id);
     if (existingCharacterId) {
@@ -5133,8 +6396,12 @@ function setup(ctx) {
     render();
     try {
       const transfer = await resolveImportTransferContract(summary || { id }, id);
-      const card = await withImportVerification(requestedName, verificationPopup, () => datacatFetch(transfer.cardPath));
+      const previewedCard = state.cardCache.get(id);
+      const card = previewedCard ? structuredClone(previewedCard) : await withImportVerification(requestedName, verificationPopup, () => datacatFetch(transfer.cardPath));
       const importedAt = new Date().toISOString();
+      ensureBookInExtensions(card);
+      const lorebookEntries = lorebookEntryCount(findCharacterBook(card));
+      const profileListsLorebook = profileLorebookInfo(transfer.character).has;
       if (card && typeof card === "object") {
         card.extensions = {
           ...card.extensions && typeof card.extensions === "object" ? card.extensions : {},
@@ -5180,10 +6447,17 @@ function setup(ctx) {
         name,
         importedAt
       });
+      let lorebookDetail = "";
+      if (lorebookEntries > 0) {
+        lorebookDetail = await confirmLorebookImport(lumiverseCharacter.id, lorebookEntries);
+      } else if (profileListsLorebook) {
+        lorebookDetail = "Datacat lists a lorebook for this character, but it was not included in the card Datacat served.";
+      }
       setStatus("");
       setImportFeedback({
         tone: "success",
         title: `${name} imported to Lumiverse`,
+        detail: lorebookDetail,
         datacatCharacterId: id,
         lumiverseCharacterId: lumiverseCharacter.id
       });
@@ -5390,6 +6664,45 @@ function setup(ctx) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target)
       return;
+    const openLightbox = modalHost.querySelector(".dcv1-lightbox");
+    if (openLightbox) {
+      openLightbox.remove();
+      if (!target.closest("[data-lightbox-src]"))
+        return;
+    }
+    const lightboxSource = target.closest("[data-lightbox-src]");
+    if (lightboxSource) {
+      const url = lightboxSource.getAttribute("data-lightbox-src") || "";
+      if (/^https?:\/\//i.test(url)) {
+        event.preventDefault();
+        const box = document.createElement("div");
+        box.className = "dcv1-lightbox";
+        box.tabIndex = -1;
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-label", "Image preview");
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.referrerPolicy = "no-referrer";
+        box.append(img);
+        modalHost.append(box);
+        box.focus({ preventScroll: true });
+      }
+      return;
+    }
+    const loadCard = target.closest("[data-load-card]");
+    if (loadCard) {
+      loadCardPreview(normalizeId(loadCard.getAttribute("data-load-card")), {
+        manual: true
+      });
+      return;
+    }
+    const cardTabButton = target.closest("[data-card-tab]");
+    if (cardTabButton) {
+      state.cardTabChoice.set(normalizeId(cardTabButton.getAttribute("data-card-id")), cardTabButton.getAttribute("data-card-tab"));
+      renderCharacterModal();
+      return;
+    }
     if (target.closest("[data-sort-toggle]")) {
       if (!state.catalogSortLoading)
         setCatalogSortOpen(catalogSortMenu.hidden);
@@ -5710,6 +7023,14 @@ function setup(ctx) {
       openProfile(normalizeId(card.getAttribute("data-card")));
   }
   function handleSurfaceKeydown(event) {
+    if (event.key === "Escape") {
+      const lightbox = modalHost.querySelector(".dcv1-lightbox");
+      if (lightbox) {
+        event.preventDefault();
+        lightbox.remove();
+        return;
+      }
+    }
     if (event.key === "Escape" && (state.selected || state.selectedLoading || state.selectedError)) {
       event.preventDefault();
       closeCharacterModal();
@@ -5745,6 +7066,12 @@ function setup(ctx) {
     event.preventDefault();
     openProfile(normalizeId(card.getAttribute("data-card")));
   }
+  modalHost.addEventListener("load", (event) => {
+    const img = event.target;
+    if (img instanceof HTMLImageElement && img.classList.contains("dcv1-rich-img") && img.naturalWidth > 0 && img.naturalWidth < 180) {
+      img.dataset.small = "true";
+    }
+  }, true);
   root.addEventListener("click", handleSurfaceClick);
   modalHost.addEventListener("click", handleSurfaceClick);
   root.addEventListener("keydown", handleSurfaceKeydown);
