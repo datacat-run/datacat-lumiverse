@@ -819,12 +819,15 @@ function profileLorebookInfo(character) {
   const count = Number.isFinite(entryCount) && entryCount > 0 ? entryCount : 0;
   return { has: flag || tagged || count > 0, count };
 }
-var CARD_TEXT_TABS = [
-  ["notes", "Creator Notes", ["creator_notes", "creatorNotes", "creatorcomment"]],
-  ["description", "Description", ["description"]],
-  ["greeting", "Greeting", ["first_mes", "firstMes", "first_message"]],
-  ["scenario", "Scenario", ["scenario"]],
-  ["example", "Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]]
+var NOTES_KEYS = ["creator_notes", "creatorNotes", "creatorcomment"];
+var GREETING_KEYS = ["first_mes", "firstMes", "first_message"];
+var FULL_TEXT_SECTIONS = [
+  ["Description", ["description"]],
+  ["Personality", ["personality"]],
+  ["Scenario", ["scenario"]],
+  ["Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],
+  ["System Prompt", ["system_prompt", "systemPrompt"]],
+  ["Post-History Instructions", ["post_history_instructions", "postHistoryInstructions"]]
 ];
 function cardField(card, keys) {
   for (const holder of [card?.data, card]) {
@@ -847,13 +850,34 @@ function cardTabs(card, { origin = "https://datacat.run", fallbackDescription = 
       return;
     tabs.push({ id, label, count, ...rendered });
   };
-  for (const [id, label, keys] of CARD_TEXT_TABS) {
+  const notes = cardField(card, NOTES_KEYS);
+  if (notes)
+    add("notes", "Description", fix(notes));
+  const sections = FULL_TEXT_SECTIONS.map(([heading, keys]) => {
     let source = cardField(card, keys);
-    if (!source && id === "description")
+    if (!source && heading === "Description" && !notes)
       source = fallbackDescription;
-    if (source)
-      add(id, label, fix(source));
+    return [heading, source];
+  }).filter(([, source]) => source);
+  if (sections.length) {
+    const rendered = sections.map(([heading, source]) => ({
+      heading,
+      ...renderRichText(fix(source), { origin })
+    }));
+    const seen = new Set;
+    tabs.push({
+      id: "full",
+      label: "Full Text",
+      html: rendered.filter((item) => item.html).map((item) => `<section class="dcv1-full-section"><h3>${item.heading}</h3>${item.html}</section>`).join(""),
+      images: rendered.flatMap((item) => item.images).filter((image) => !seen.has(image.url) && seen.add(image.url)),
+      plain: rendered.map((item) => item.plain).join(`
+
+`)
+    });
   }
+  const greeting = cardField(card, GREETING_KEYS);
+  if (greeting)
+    add("greeting", "Greeting", fix(greeting));
   const alts = [card?.data?.alternate_greetings, card?.alternate_greetings, card?.alternateGreetings].find((list) => Array.isArray(list));
   const greetings = (alts || []).filter((text) => typeof text === "string" && text.trim());
   if (greetings.length) {
@@ -3301,6 +3325,14 @@ function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
+    .dcv1-character-byline .dcv1-creator-link {
+      padding: 3px 11px;
+      border: 1px solid rgba(219, 39, 119, .55);
+      border-radius: 999px;
+      background: rgba(219, 39, 119, .14);
+      color: #ffd9ea;
+      font-weight: 600;
+    }
     .dcv1-detail-section {
       margin-top: 26px;
       min-width: 0;
@@ -3525,6 +3557,12 @@ function setup(ctx) {
       padding-top: 1.2em;
       border-top: 1px solid rgba(255,255,255,.1);
     }
+    .dcv1-full-section + .dcv1-full-section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-full-section > h3 { margin: 0 0 8px; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
     .dcv1-alt-greeting > h3 { margin-top: 0; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
     .dcv1-card-load {
       display: flex;
@@ -5200,15 +5238,15 @@ function setup(ctx) {
                       <span>${cardError ? escapeHtml(cardError) : cardLoading ? "Fetching the full card…" : getVerificationLease() ? "Greeting, scenario, example dialogue and images." : "One-time security check per session. After that, characters open in full view automatically."}</span>
                     </div>`}
               </section>
+              ${tags.length ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Tags</h2>
+                    <div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>
+                  </section>` : ""}
               ${gallery.length ? `<section class="dcv1-detail-section">
                     <h2 class="dcv1-detail-heading">Images <span>${gallery.length}</span></h2>
                     <div class="dcv1-gallery">${gallery.map((image) => `<button class="dcv1-gallery-item" type="button" data-lightbox-src="${escapeAttribute(image.url)}" aria-label="${escapeAttribute(image.alt || "Open image")}">
                           <img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                         </button>`).join("")}</div>
-                  </section>` : ""}
-              ${tags.length ? `<section class="dcv1-detail-section">
-                    <h2 class="dcv1-detail-heading">Tags</h2>
-                    <div class="dcv1-profile-tags">${tags.map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>
                   </section>` : ""}
               ${renderCharacterCommunity(characterId)}
               ${state.selectedLoading ? `<div class="dcv1-status">Loading complete character details…</div>` : ""}

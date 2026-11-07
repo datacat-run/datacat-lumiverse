@@ -2539,6 +2539,14 @@ export function setup(ctx) {
       color: var(--dc-muted);
       font-size: 11px;
     }
+    .dcv1-character-byline .dcv1-creator-link {
+      padding: 3px 11px;
+      border: 1px solid rgba(219, 39, 119, .55);
+      border-radius: 999px;
+      background: rgba(219, 39, 119, .14);
+      color: #ffd9ea;
+      font-weight: 600;
+    }
     .dcv1-detail-section {
       margin-top: 26px;
       min-width: 0;
@@ -2763,6 +2771,12 @@ export function setup(ctx) {
       padding-top: 1.2em;
       border-top: 1px solid rgba(255,255,255,.1);
     }
+    .dcv1-full-section + .dcv1-full-section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .dcv1-full-section > h3 { margin: 0 0 8px; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
     .dcv1-alt-greeting > h3 { margin-top: 0; font-size: 12px; color: var(--dc-yellow); letter-spacing: .08em; text-transform: uppercase; }
     .dcv1-card-load {
       display: flex;
@@ -4809,6 +4823,14 @@ export function setup(ctx) {
                       <span>${cardError ? escapeHtml(cardError) : cardLoading ? "Fetching the full card…" : getVerificationLease() ? "Greeting, scenario, example dialogue and images." : "One-time security check per session. After that, characters open in full view automatically."}</span>
                     </div>`}
               </section>
+              ${tags.length
+                ? `<section class="dcv1-detail-section">
+                    <h2 class="dcv1-detail-heading">Tags</h2>
+                    <div class="dcv1-profile-tags">${tags
+                      .map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`)
+                      .join("")}</div>
+                  </section>`
+                : ""}
               ${gallery.length
                 ? `<section class="dcv1-detail-section">
                     <h2 class="dcv1-detail-heading">Images <span>${gallery.length}</span></h2>
@@ -4818,14 +4840,6 @@ export function setup(ctx) {
                           <img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                         </button>`,
                       )
-                      .join("")}</div>
-                  </section>`
-                : ""}
-              ${tags.length
-                ? `<section class="dcv1-detail-section">
-                    <h2 class="dcv1-detail-heading">Tags</h2>
-                    <div class="dcv1-profile-tags">${tags
-                      .map((tag) => `<button class="dcv1-tag" type="button" data-tag-name="${escapeAttribute(tag)}">${escapeHtml(tag)}</button>`)
                       .join("")}</div>
                   </section>`
                 : ""}

@@ -689,13 +689,17 @@ export function profileLorebookInfo(character) {
 
 // ── Full card preview ───────────────────────────────────────────────────────
 
-// Order matters: the first tab with content is the default view.
-const CARD_TEXT_TABS = [
-  ["notes", "Creator Notes", ["creator_notes", "creatorNotes", "creatorcomment"]],
-  ["description", "Description", ["description"]],
-  ["greeting", "Greeting", ["first_mes", "firstMes", "first_message"]],
-  ["scenario", "Scenario", ["scenario"]],
-  ["example", "Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],
+// Same layout as the Datacat page: Description (the creator's public text),
+// Full Text (the card's own definition), Greeting, Alt Greetings.
+const NOTES_KEYS = ["creator_notes", "creatorNotes", "creatorcomment"];
+const GREETING_KEYS = ["first_mes", "firstMes", "first_message"];
+const FULL_TEXT_SECTIONS = [
+  ["Description", ["description"]],
+  ["Personality", ["personality"]],
+  ["Scenario", ["scenario"]],
+  ["Example Dialogue", ["mes_example", "mesExample", "example_dialogue"]],
+  ["System Prompt", ["system_prompt", "systemPrompt"]],
+  ["Post-History Instructions", ["post_history_instructions", "postHistoryInstructions"]],
 ];
 
 function cardField(card, keys) {
@@ -722,11 +726,34 @@ export function cardTabs(card, { origin = "https://datacat.run", fallbackDescrip
     if (!rendered.html) return;
     tabs.push({ id, label, count, ...rendered });
   };
-  for (const [id, label, keys] of CARD_TEXT_TABS) {
+  const notes = cardField(card, NOTES_KEYS);
+  if (notes) add("notes", "Description", fix(notes));
+  const sections = FULL_TEXT_SECTIONS.map(([heading, keys]) => {
     let source = cardField(card, keys);
-    if (!source && id === "description") source = fallbackDescription;
-    if (source) add(id, label, fix(source));
+    if (!source && heading === "Description" && !notes) source = fallbackDescription;
+    return [heading, source];
+  }).filter(([, source]) => source);
+  if (sections.length) {
+    const rendered = sections.map(([heading, source]) => ({
+      heading,
+      ...renderRichText(fix(source), { origin }),
+    }));
+    const seen = new Set();
+    tabs.push({
+      id: "full",
+      label: "Full Text",
+      html: rendered
+        .filter((item) => item.html)
+        .map((item) => `<section class="dcv1-full-section"><h3>${item.heading}</h3>${item.html}</section>`)
+        .join(""),
+      images: rendered
+        .flatMap((item) => item.images)
+        .filter((image) => !seen.has(image.url) && seen.add(image.url)),
+      plain: rendered.map((item) => item.plain).join("\n\n"),
+    });
   }
+  const greeting = cardField(card, GREETING_KEYS);
+  if (greeting) add("greeting", "Greeting", fix(greeting));
   const alts = [card?.data?.alternate_greetings, card?.alternate_greetings, card?.alternateGreetings]
     .find((list) => Array.isArray(list));
   const greetings = (alts || []).filter((text) => typeof text === "string" && text.trim());
